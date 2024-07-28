@@ -1,0 +1,3787 @@
+---
+title: "locality_balanites"
+author: "Natalia_MEDINA"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+library(latexpdf)
+library(tinytex)
+```
+
+## Packages and data import
+
+```{r Packages}
+
+#all the packages that are going to be necessary: 
+library(purrr)
+
+library(iNEXT)#for the diversity index
+library (vegan)
+library (glmmTMB)#for the models in order to take generalized poisson if needed (more recommended than poisson)
+library(ggplot2)#boxplot
+library(rlang)
+library(stringr)
+library(ggpubr)
+library(DHARMa)
+
+library(fitdistrplus)
+library(MASS)
+
+#network
+
+library("bipartite")
+library(tidyverse)
+library(viridis)
+library(patchwork)
+library(hrbrthemes)
+library(circlize)
+library(magrittr)
+library(networkD3)
+
+library(dplyr)
+vapply(c("magrittr","stringr", "glmmTMB", "readr", "janitor", "scales", "mgcv", "RColorBrewer", "dplyr","ggplot2","car","reshape","tidyverse", "lme4", "contrast","vegan", "iNEXT","grid","gridExtra","VennDiagram","emmeans", "DHARMa", "MuMIn", "ape", "pander","factoextra","FactoMineR","gdm","betapart", "cowplot"), library, logical(1L),
+       character.only = TRUE, logical.return = TRUE)
+citation(package = "lme4")
+
+
+library(webshot2)
+library(webshot2)
+library(pheatmap)
+library(hrbrthemes)
+library(plotly)
+
+
+
+library(ggrepel)
+
+#add all the packages needed here
+
+
+```
+
+
+
+
+```{r Data import}
+#From the abundance initial data filled from de insect determination: 
+
+
+#Import data
+Ferlo <- read.csv('Base_primaire1.csv', sep = ';')#ici toute la matrice d'abondances avec les informations correspondantes
+Order_info <- read.csv('taxo.csv', sep = ';')  #ici le dataframe avec les ordres et familles 
+data_dbh <- read.csv ('data_dbh.csv', sep = ';')# data de dbh
+data_ind_A<- read.csv('data_dbh_A.csv', sep = ';', dec = ",")#data floraison et densité arbres autour
+###mettre ici les données arbres du mois d'aout _balanites et vachellia
+
+
+##here import all the data needed 
+
+```
+
+```{r Data preparation}
+
+
+#data frame preparation
+## Here make all the matrix needed:
+
+# List of column names
+Headers <- names(Ferlo)
+print(Headers)
+
+#print (Headers)
+Col0 <- 16  # Column where morpho-species start (so this one need to be modified if necessary)
+
+
+## this reunites the abundance base_primaire matrix into one data.frame
+##it is possible to separate from the beginning Balanites and Vachellia 
+## the last part bring together the information for the dataframe taxo and All to be able to have one big database with all the information centralized in all_data
+
+
+#cont_Bal <- 0  # Counter for Balanites
+#cont_Vac <- 0  # Counter for Vachellia
+cont <- 0
+
+for (i in Col0:length(Headers)) {#do not forget to modified Col0 depending in the number of columns where "morphospecies" starts
+  
+  Who_nan <- is.na(Ferlo[[Headers[i]]])
+  All_Spe <- which(!Who_nan)
+  
+  for (j in seq_along(All_Spe)) {
+    Whe <- All_Spe[j]
+    
+    # Information in dataframe
+    s1 <- data.frame(
+      morphospecies = Headers[i],
+      Locality = Ferlo$Localite[Whe],
+      id_tree = Ferlo$identifiant_tree[Whe],
+      Methode = Ferlo$Methode[Whe],
+      moment= Ferlo$moment[Whe],
+      season=Ferlo$saison[Whe],
+      ID=Ferlo$ID[Whe],
+      ID_t = Ferlo$ID_arbre[Whe],
+      datasite = Ferlo$datasite[Whe],
+      site_date = Ferlo$sitedate[Whe],
+      id_site= Ferlo$Idsite[Whe],
+      site= Ferlo$site[Whe],
+      species_tree=Ferlo$espece_arbre[Whe],
+      ID_date = Ferlo$individu_date[Whe],
+      date = Ferlo$date[Whe],
+      Abun_tree = Ferlo[[Headers[i]]][Whe]
+    )
+    
+    Info_Head <- c("morphospecies","Locality","id_tree","Methode", "moment", "season","ID","ID_t" ,
+                   "datasite", "site_date","id_site", "site", "species_tree", "ID_date", "date",
+                   "Abun_tree") #Here import all the information containing in the initial data
+    
+    species_tree <- Ferlo$espece_arbre[Whe]
+    if (cont == 0) {
+      All <- s1
+    } else {
+      All <- bind_rows(All, s1)
+    }
+    cont <<- cont + 1
+  }
+}
+
+all_data1 <- left_join(Order_info,All,by="morphospecies", multiple = "all") #all_data1 bind with other infos related to the morphospecies (in Order_family a lot of empty spaces)
+#write.csv(all_data, 'data_frame_All.csv', row.names = FALSE)#vérifier quelques details sur 86 dans tableau primaire, être sure que toutes les familles se retrouvent et les vides les effacer par la suite
+
+all_data1$morphospecies <- all_data1$morphospecies %>% str_to_lower()
+all_data<-all_data1[all_data1$Order != "Arachnida", ]
+
+
+
+### season lists 
+dfs_lists_VB <- list() #creation of a list where is in going to be possible to find all the different subsets of interest
+
+for (tree_species in unique(all_data$species_tree)) {
+  
+  # Filter data for the current locality and tree species
+  subset_data <- filter(all_data, species_tree == tree_species)
+  
+  # Check if there are rows in the subset
+  if (nrow(subset_data) > 0) {
+    
+    # Create a unique identifier for the combination
+    identifier <- paste0(tree_species)
+    
+    # Extract specific columns
+    subset_data <- subset_data %>%
+      select(morphospecies,
+             Order,
+             Family, Superfamily, functional_group, guild,
+             Locality,id_tree,Methode, moment, season, ID, ID_t,
+             datasite, site_date,id_site, site, ID_date, date,
+             Abun_tree) #faire le choix des informations à faire apparaitre 
+    
+    # Assign the subset to a dataframe with a unique name
+    dfs_lists_VB[[identifier]] <- subset_data
+  }
+}
+
+#For this paper I will only take into account the information in Balanites , and only for one location Koyli_Alpha
+
+
+```
+
+
+# All localities and all methods related analysis in August:
+
+```{r Data subset for all insects all methods}
+#######Auust selection depending on the method
+
+#All 
+
+
+subset_data_A_all <- subset(dfs_lists_VB$Balanites_aegyptiaca,
+                        moment == "jour"& season =="J")
+desired_order <- c("Koyli_Alpha", "Widou", "Ranerou") 
+subset_data_A_all$Locality<-factor(subset_data_A_all$Locality, levels = desired_order)
+abundance_aggregated_all<-aggregate(Abun_tree ~ morphospecies+Methode+Locality+id_tree+site, data = subset_data_A_all, sum)
+
+abundance_aggregated_all<-aggregate(Abun_tree ~ morphospecies+Methode+Locality+functional_group+Order+Family+id_tree+site, data = subset_data_A_all, sum)
+
+
+abundance_aggregated_a<- left_join(data_ind_A,abundance_aggregated_all,by="id_tree", multiple = "all")
+desired_order <- c("Koyli_Alpha", "Widou", "Ranerou") 
+abundance_aggregated_a$Locality<- factor(abundance_aggregated_a$Locality , levels = desired_order)
+
+
+#graph superfamilies
+
+subset_data_A_all %>%
+ filter(!(Order %in% c("Lepidoptera", "Neuroptera", "Orthoptera", "Psocoptera"))) %>%
+ ggplot() +
+  aes(x = Abun_tree, y = Superfamily, fill = Order) +
+  geom_boxplot() +
+  scale_fill_hue(direction = 1) +
+  scale_x_continuous(trans = "log10") +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_text(size = 12L),
+    axis.title.x = element_text(size = 12L),
+    axis.text.y = element_text(size = 12L),
+    axis.text.x = element_text(size = 12L)
+  ) +
+  facet_wrap(vars(Locality))
+
+
+
+
+subset_datasumtotB <- subset(dfs_lists_VB$Balanites_aegyptiaca,
+                        moment == "jour")
+
+subset_datasumtotV <- subset(dfs_lists_VB$Vachellia_tortilis,
+                        moment == "jour")
+
+
+# Combining the two subsetted dataframes by stacking them
+combined_data <- bind_rows(subset_datasumtotB, subset_datasumtotV)
+
+abundance_aggregatedVB<-aggregate(Abun_tree ~ morphospecies+Family+Superfamily+Order, data = combined_data, sum)
+
+
+```
+
+
+```{r Data subset for every order - all methods}
+
+abundance_aggregated_graphHymeno<-subset_data_A_all%>%  filter(Order %in% ("Hymenoptera"))
+
+abundance_graphL<-aggregate(Abun_tree ~ Order, data = subset_data_A_all, sum)
+
+abundance_graphmL<-aggregate(Abun_tree ~Family, data = subset_data_A_all, sum)
+
+abundance_formic1<-subset_data_A_all%>%  filter(Family %in% ("Formicidae"))
+
+
+abundance_halict1<-subset_data_A_all%>%  filter(Family %in% ("Halictidae"))
+abundance_chloro1<-subset_data_A_all%>%  filter(Family %in% ("Chloropidae"))
+
+abundance_all<-aggregate(Abun_tree ~ Family+morphospecies+Locality, data= subset_data_A_all, sum)
+
+
+abundance_hymenoL<-aggregate(Abun_tree ~ Family+Superfamily+morphospecies+functional_group, data = subset_data_A_all%>% filter(Order %in% ("Hymenoptera")), sum)
+
+abundance_dipteL<-aggregate(Abun_tree ~ Family+Superfamily+morphospecies+functional_group, data = subset_data_A_all%>% filter(Order %in% ("Diptera")), sum)
+
+abundance_coleoL<-aggregate(Abun_tree ~ Family+Superfamily+morphospecies+functional_group, data = subset_data_A_all%>% filter(Order %in% ("Coleoptera")), sum)
+
+abundance_thysaL<-aggregate(Abun_tree ~ Family+Superfamily+morphospecies+functional_group, data = subset_data_A_all%>% filter(Order %in% ("Thysanoptera")), sum)
+
+abundance_hemipL<-aggregate(Abun_tree ~ Family+Superfamily+morphospecies+functional_group+season, data = subset_data_A_all%>% filter(Order %in% ("Hemiptera")), sum)
+
+abundance_other<-subset_data_A_all %>%
+  filter(!(Order %in% c("Diptera", "Hymenoptera", "Coleoptera", "Thysanoptera", "Insecta", "Hemiptera", "Lepidoptera"))) %>%
+  aggregate(Abun_tree ~ Family + Superfamily + morphospecies + functional_group, data = ., sum)
+
+
+```
+
+
+
+```{r graphs for all insects all methods}
+####Net
+#barplot total abundance
+abundance_aggregated_a %>% 
+  filter(Methode %in% "Net") %>% 
+  filter(!(Order %in% "Lepidoptera")) %>% 
+  ggplot() + 
+  aes(x = Abun_tree, y = Order, fill = functional_group) + 
+  geom_bar(stat = "summary", fun = "sum", position = "dodge2") + 
+  scale_fill_hue(direction = 1) + 
+  labs(title= "Total abundance", subtitle = "Net") +
+  ggthemes::theme_base() + 
+  theme( legend.position = "bottom", 
+         plot.title = element_text(face = "bold"), 
+         plot.caption = element_text(size = 11L), 
+         axis.title.y = element_text(size = 12L), 
+         axis.title.x = element_text(size = 12L), 
+         axis.text.y = element_text(size = 12L), 
+         axis.text.x = element_text(size = 12L), 
+         legend.text = element_text(size = 12L), 
+         legend.title = element_text(size = 12L) ) + 
+  facet_wrap(vars(Locality))
+
+
+#boxplot abundaance per tree net sites and localities - ORDER
+abundance_aggregated_a %>%
+ filter(Methode %in% "Net") %>%
+ filter(!(Order %in% "Lepidoptera")) %>%
+ ggplot() +
+  aes(x = Abun_tree, y = Locality, fill = Order) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "Set1", direction = 1) +
+  scale_x_continuous(trans = "log10") +
+  labs(title = "Abundance per tree", subtitle = "Net") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.caption = element_text(size = 11L),
+    axis.title.y = element_text(size = 12L),
+    axis.title.x = element_text(size = 12L),
+    axis.text.y = element_text(size = 12L),
+    legend.text = element_text(size = 12L),
+    legend.title = element_text(size = 12L)
+  ) +
+  facet_wrap(vars(site))
+
+#boxplot abundaance per tree net sites and localities
+abundance_aggregated_a %>%
+ filter(Methode %in% "Net") %>%
+ filter(!(Order %in% "Lepidoptera")) %>%
+ filter(!(functional_group %in% "generalist_hymenoptera"))%>%
+ ggplot() +
+  aes(x = Abun_tree, y = Locality, fill = Locality) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "Set1", direction = 1) +
+  scale_x_continuous(trans = "log10") +
+  labs(title = "Abundance per tree", subtitle = "Net") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.caption = element_text(size = 11L),
+    axis.title.y = element_text(size = 12L),
+    axis.title.x = element_text(size = 12L),
+    axis.text.y = element_text(size = 12L),
+    legend.text = element_text(size = 12L),
+    legend.title = element_text(size = 12L)
+  ) +
+  facet_wrap(vars(site))
+
+#boxplot abundaance per tree net sites and localities - FUNCTIONAL GROUP
+
+
+abundance_aggregated_a %>%
+ filter(Methode %in% "Net") %>%
+ filter(!(Order %in% "Lepidoptera")) %>%
+ ggplot() +
+  aes(x = Abun_tree, y = Order, fill = functional_group) +
+  geom_boxplot() +
+  scale_fill_hue(direction = 1) +
+  scale_x_continuous(trans = "log10") +
+  labs(title = "Abundance per tree", subtitle = "Net") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.caption = element_text(size = 11L),
+    axis.title.y = element_text(size = 12L),
+    axis.title.x = element_text(size = 12L),
+    axis.text.y = element_text(size = 12L),
+    legend.text = element_text(size = 12L),
+    legend.title = element_text(size = 12L)
+  ) +
+  facet_wrap(vars(Locality))
+
+
+#Koyli net
+
+abundance_aggregated_a %>%
+ filter(Methode %in% "Net") %>%
+ filter(Locality %in% "Koyli_Alpha") %>%
+ filter(!(functional_group %in% 
+ c("pollinator_lepidoptera", "psocoptera", "predatory_neuroptera", "coleoptera", "hymenoptera", "diptera", 
+ "phytophagous_orthoptera"))) %>%
+ filter(!(Order %in% "Lepidoptera")) %>%
+ ggplot() +
+  aes(x = Abun_tree, y = Order, fill = functional_group) +
+  geom_boxplot() +
+  scale_fill_hue(direction = 1) +
+  scale_x_continuous(trans = "log10") +
+  labs(title = "Abundance per tree - Koyli", subtitle = "Net") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.caption = element_text(size = 11L),
+    axis.title.y = element_text(size = 12L),
+    axis.title.x = element_text(size = 12L),
+    axis.text.y = element_text(size = 12L),
+    legend.text = element_text(size = 12L),
+    legend.title = element_text(size = 12L)
+  ) +
+  facet_wrap(vars(site))
+
+
+#Wdou
+
+abundance_aggregated_a %>%
+ filter(Methode %in% "Net") %>%
+ filter(Locality %in% "Widou") %>%
+ filter(!(functional_group %in% 
+ c("pollinator_lepidoptera", "psocoptera", "predatory_neuroptera", "coleoptera", "hymenoptera", "diptera", 
+ "phytophagous_orthoptera"))) %>%
+ filter(!(Order %in% "Lepidoptera")) %>%
+ ggplot() +
+  aes(x = Abun_tree, y = Order, fill = functional_group) +
+  geom_boxplot() +
+  scale_fill_hue(direction = 1) +
+  scale_x_continuous(trans = "log10") +
+  labs(title = "Abundance per tree - Widou", subtitle = "Net") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.caption = element_text(size = 11L),
+    axis.title.y = element_text(size = 12L),
+    axis.title.x = element_text(size = 12L),
+    axis.text.y = element_text(size = 12L),
+    legend.text = element_text(size = 12L),
+    legend.title = element_text(size = 12L)
+  ) +
+  facet_wrap(vars(site))
+
+
+#Ranerou Net
+
+abundance_aggregated_a %>%
+ filter(Methode %in% "Net") %>%
+ filter(Locality %in% "Ranerou") %>%
+ filter(!(functional_group %in% 
+ c("pollinator_lepidoptera", "psocoptera", "predatory_neuroptera", "coleoptera", "hymenoptera", "diptera", 
+ "phytophagous_orthoptera"))) %>%
+ filter(!(Order %in% "Lepidoptera")) %>%
+ ggplot() +
+  aes(x = Abun_tree, y = Order, fill = functional_group) +
+  geom_boxplot() +
+  scale_fill_hue(direction = 1) +
+  scale_x_continuous(trans = "log10") +
+  labs(title = "Abundance per tree - Ranerou", subtitle = "Net") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.caption = element_text(size = 11L),
+    axis.title.y = element_text(size = 12L),
+    axis.title.x = element_text(size = 12L),
+    axis.text.y = element_text(size = 12L),
+    legend.text = element_text(size = 12L),
+    legend.title = element_text(size = 12L)
+  ) +
+  facet_wrap(vars(site))
+
+
+####Pantrap
+#Barplot total abundance
+abundance_aggregated_a %>%
+ filter(Methode %in% "Pantrap") %>%
+ filter(!(Order %in% "Lepidoptera")) %>%
+ ggplot() +
+  aes(x = Abun_tree, y = Order, fill = functional_group) +
+  geom_bar(stat = "summary", fun = "sum", position = "dodge2") +
+  scale_fill_hue(direction = 1) +
+  labs(subtitle = "Pantrap") +
+  ggthemes::theme_base() +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold"),
+    plot.caption = element_text(size = 11L),
+    axis.title.y = element_text(size = 12L),
+    axis.title.x = element_text(size = 12L),
+    axis.text.y = element_text(size = 12L),
+    axis.text.x = element_text(size = 12L),
+    legend.text = element_text(size = 12L),
+    legend.title = element_text(size = 12L)
+  ) +
+  facet_wrap(vars(Locality))
+
+
+#Barplot total abundance without formicidae (or without generalist_hymenoptera)
+
+abundance_aggregated_a %>% filter(Methode %in% "Pantrap") %>% filter(!(functional_group %in% "generalist_hymenoptera")) %>% filter(!(Order %in% "Lepidoptera")) %>% ggplot() + aes(x = Abun_tree, y = Order, fill = functional_group) + geom_bar(stat = "summary", fun = "sum", position = "dodge2") + scale_fill_hue(direction = 1) + labs(subtitle = "Pantrap") + ggthemes::theme_base() + theme( legend.position = "bottom", plot.title = element_text(face = "bold"), plot.caption = element_text(size = 11L), axis.title.y = element_text(size = 12L), axis.title.x = element_text(size = 12L), axis.text.y = element_text(size = 12L), axis.text.x = element_text(size = 12L), legend.text = element_text(size = 12L), legend.title = element_text(size = 12L) ) + facet_wrap(vars(Locality))
+
+#boxplot abundaance per tree net sites and localities - ORDER log 10
+abundance_aggregated_a %>%
+ filter(Methode %in% "Pantrap") %>%
+ filter(!(Order %in% "Lepidoptera")) %>%
+ ggplot() +
+  aes(x = Abun_tree, y = Locality, fill = Order) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "Set1", direction = 1) +
+  scale_x_continuous(trans = "log10") +
+  labs(title = "Abundance per tree", subtitle = "Pantrap") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.caption = element_text(size = 11L),
+    axis.title.y = element_text(size = 12L),
+    axis.title.x = element_text(size = 12L),
+    axis.text.y = element_text(size = 12L),
+    legend.text = element_text(size = 12L),
+    legend.title = element_text(size = 12L)
+  ) +
+  facet_wrap(vars(site))
+
+#boxplot abundaance per tree net sites and localities - FUNCTIONAL GROUPS log10
+abundance_aggregated_a %>%
+ filter(Methode %in% "Pantrap") %>%
+ filter(!(Order %in% "Lepidoptera")) %>%
+ ggplot() +
+  aes(x = Abun_tree, y = Order, fill = functional_group) +
+  geom_boxplot() +
+  scale_fill_hue(direction = 1) +
+  scale_x_continuous(trans = "log10") +
+  labs(title = "Abundance per tree", subtitle = "Pantrap") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.caption = element_text(size = 11L),
+    axis.title.y = element_text(size = 12L),
+    axis.title.x = element_text(size = 12L),
+    axis.text.y = element_text(size = 12L),
+    legend.text = element_text(size = 12L),
+    legend.title = element_text(size = 12L)
+  ) +
+  facet_wrap(vars(Locality))
+
+ 
+#Koyli pantrap
+
+
+abundance_aggregated_a %>%
+ filter(Methode %in% "Pantrap") %>%
+ filter(Locality %in% "Koyli_Alpha") %>%
+ filter(!(functional_group %in% 
+ c("pollinator_lepidoptera", "psocoptera", "predatory_neuroptera", "coleoptera", "hymenoptera", "diptera", 
+ "phytophagous_orthoptera"))) %>%
+ filter(!(Order %in% "Lepidoptera")) %>%
+ ggplot() +
+  aes(x = Abun_tree, y = Order, fill = functional_group) +
+  geom_boxplot() +
+  scale_fill_hue(direction = 1) +
+  scale_x_continuous(trans = "log10") +
+  labs(title = "Abundance per tree - Koyli", subtitle = "Pantrap") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.caption = element_text(size = 11L),
+    axis.title.y = element_text(size = 12L),
+    axis.title.x = element_text(size = 12L),
+    axis.text.y = element_text(size = 12L),
+    legend.text = element_text(size = 12L),
+    legend.title = element_text(size = 12L)
+  ) +
+  facet_wrap(vars(site))
+
+
+#Wdou pantrap
+
+abundance_aggregated_a %>%
+ filter(Methode %in% "Pantrap") %>%
+ filter(Locality %in% "Widou") %>%
+ filter(!(functional_group %in% 
+ c("pollinator_lepidoptera", "psocoptera", "predatory_neuroptera", "coleoptera", "hymenoptera", "diptera", 
+ "phytophagous_orthoptera"))) %>%
+ filter(!(Order %in% "Lepidoptera")) %>%
+ ggplot() +
+  aes(x = Abun_tree, y = Order, fill = functional_group) +
+  geom_boxplot() +
+  scale_fill_hue(direction = 1) +
+  scale_x_continuous(trans = "log10") +
+  labs(title = "Abundance per tree - Widou", subtitle = "Pantrap") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.caption = element_text(size = 11L),
+    axis.title.y = element_text(size = 12L),
+    axis.title.x = element_text(size = 12L),
+    axis.text.y = element_text(size = 12L),
+    legend.text = element_text(size = 12L),
+    legend.title = element_text(size = 12L)
+  ) +
+  facet_wrap(vars(site))
+
+
+#Ranerou pantrap
+
+abundance_aggregated_a %>%
+ filter(Methode %in% "Pantrap") %>%
+ filter(Locality %in% "Ranerou") %>%
+ filter(!(functional_group %in% 
+ c("pollinator_lepidoptera", "psocoptera", "predatory_neuroptera", "coleoptera", "hymenoptera", "diptera", 
+ "phytophagous_orthoptera"))) %>%
+ filter(!(Order %in% "Lepidoptera")) %>%
+ ggplot() +
+  aes(x = Abun_tree, y = Order, fill = functional_group) +
+  geom_boxplot() +
+  scale_fill_hue(direction = 1) +
+  scale_x_continuous(trans = "log10") +
+  labs(title = "Abundance per tree - Ranerou", subtitle = "Pantrap") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.caption = element_text(size = 11L),
+    axis.title.y = element_text(size = 12L),
+    axis.title.x = element_text(size = 12L),
+    axis.text.y = element_text(size = 12L),
+    legend.text = element_text(size = 12L),
+    legend.title = element_text(size = 12L)
+  ) +
+  facet_wrap(vars(site))
+
+
+
+```
+
+
+
+
+Data for all treatments - unrestored, restored and unrestored depression :
+
+```{r Data Abundance matrix per treatment}
+###creation de matrice pour toutes les informations comprises 
+
+# first one with the treatments
+
+UniMorpho <- unique(abundance_aggregated_a$morphospecies)#choix de la morphoespèce unique
+uniloc    <- unique(abundance_aggregated_a$site)#cette variable reste a changer en fonction du tableau utilisé
+
+# Create a matrix Locs filled with zeros
+# Locs crée une variable avec toutes les morphoespeces en ligne et les colonnes uniques (en fonction du choix fait)
+Locs <- matrix(0, nrow = length(abundance_aggregated_a$morphospecies), ncol = length(uniloc))
+
+
+#Abu = matrice vide pour info unique de morphoespece et de uniloc(qui varie en fonction de la question)
+Abu_K <- matrix(0, nrow = length(UniMorpho), ncol = length(uniloc))              
+rownames(Abu_K) <- UniMorpho
+colnames(Abu_K) <- uniloc
+
+
+# Loop through each element of uniloc
+for (i in seq_along(uniloc)) {
+  # Set the corresponding column in Locs to 1 where the condition is true, result of the matrix presence/absence
+  Locs[, i] <- abundance_aggregated_a$site == uniloc[i]
+}                                   
+
+# Loop through each element of UniMorpho
+for (i in seq_along(UniMorpho)) {
+  # Create a logical vector Wh1 based on the condition
+  #binary condition (presence 1 abs 0)
+  Wh1 <- abundance_aggregated_a$morphospecies == UniMorpho[i]
+  
+  # Loop through each element of uniloc
+  for (j in seq_along(uniloc)) {
+    # Use which to get indices where the condition is true
+    A <- which(Wh1 * Locs[, j]!=0)
+    
+    # Sum the corresponding Abun_tree values
+    Abui <- sum(abundance_aggregated_a$Abun_tree[A])
+    
+    # Assign the sum to Locs[i, j],nouvelle matrice avec la somme des toutes les abondances par colonne
+    Abu_K[i, j] <- Abui
+  }
+}
+```
+
+```{r graphs/treatments}
+
+### Indices de diversité de Chao
+ChaoRichness(Abu_K)#avec des dataframe, faire en fonction de ce que je cherche, par exemple tel que c'est fait, methode, site, localité, saison
+ChaoShannon(Abu_K)
+DataInfo(Abu_K)
+
+data_info <- DataInfo(Abu_K)
+# Plot bar chart for 'n' and 'S.obs'
+ggplot(data_info, aes(x = Assemblage, y = n, fill = Assemblage)) +
+  theme_bw() +
+  scale_fill_manual(values = c(Unrestored = "#FF5722", Depression = "#CDDC39", Restored = "#26A69A")) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = n), vjust = -0.3, position = position_dodge(width = 0.9)) +
+  labs(title = "Bar Plot for the abundance per treatment - End of dry season",
+       x = "Treatment",
+       y = "Total abundance") +
+  theme_minimal()
+
+
+data_info <- ChaoRichness(Abu_K)
+data_info$Assemblage<-rownames(data_info)
+# Plot bar chart for 'n' and 'S.obs'
+ggplot(data_info, aes(x = Assemblage, y = Observed, fill = Assemblage)) +
+  theme_bw() +
+  scale_fill_manual(values = c(Unrestored = "#FF5722", Depression = "#CDDC39", Restored = "#26A69A")) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = Observed), vjust = -0.3, position = position_dodge(width = 0.9)) +
+  labs(title = "Bar Plot for the species richness per treatment  - End of dry season",
+       x = "Treatment",
+       y = "Species richness") +
+  theme_minimal()
+
+#q =c(0,1,2) pour les indices de Hill
+
+nex<-iNEXT(Abu_K, q=0, datatype="abundance", size=NULL, endpoint=3000, se=TRUE, conf=0.95)
+df <- fortify(nex, type=1)
+
+df.point <- df[df$Method=="Observed",]
+df.line <- df[df$Method!="Observed",]
+df.line$Method <- as.factor(df.line$Method)
+
+ekn0<-ggplot(df, aes(x=x, y=y, colour=Assemblage)) + 
+  geom_point(aes(shape=Assemblage), size=3, data=df.point) +
+  geom_line(aes(linetype=Method), lwd=1, data=df.line) +
+  geom_ribbon(aes(ymin=y.lwr, ymax=y.upr,
+                  fill=Assemblage, colour=NULL), alpha=0.2) +
+  scale_color_manual(values= c(Unrestored = "#FF5722", Depression = "#CDDC39", Restored = "#26A69A"))+scale_fill_manual(values=c(Unrestored = "#FF5722", Depression = "#CDDC39", Restored = "#26A69A"))+
+  labs(x="Abundance", y="Species richness - q = 0") +
+  ggtitle("End of dry season  - all")  +
+  theme(legend.position = "bottom", 
+        legend.title=element_blank(),
+        text=element_text(size=10),
+        legend.box = "vertical",
+        panel.background = element_blank(),  # Remove background color
+        plot.background = element_blank()) 
+
+
+
+
+
+nex2<-iNEXT(Abu_K, q=2, datatype="abundance", size=NULL, endpoint=3000, se=TRUE, conf=0.95)
+df <- fortify(nex2, type=1)
+df.point <- df[df$Method=="Observed",]
+df.line <- df[df$Method!="Observed",]
+df.line$Method <- as.factor(df.line$Method)
+
+ekn2<-ggplot(df, aes(x=x, y=y, colour=Assemblage)) + 
+  geom_point(aes(shape=Assemblage), size=3, data=df.point) +
+  geom_line(aes(linetype=Method), lwd=1, data=df.line) +
+  geom_ribbon(aes(ymin=y.lwr, ymax=y.upr,
+                  fill=Assemblage, colour=NULL), alpha=0.2) +
+  scale_color_manual(values= c(Unrestored = "#FF5722", Depression = "#CDDC39", Restored = "#26A69A"))+scale_fill_manual(values=c(Unrestored = "#FF5722", Depression = "#CDDC39", Restored = "#26A69A"))+
+  labs(x="Abundance", y="Simpson diversity - q=2") +
+  ggtitle("End of dry season - all")  +
+  theme(legend.position = "bottom", 
+        legend.title=element_blank(),
+        text=element_text(size=10),
+        legend.box = "vertical",
+        panel.background = element_blank(),  # Remove background color
+        plot.background = element_blank()) 
+
+ekn0#courbe de rarefaction (changer le nombre de Hill si nécessaire)
+ekn2#courbe de rarefaction (changer le nombre de Hill si nécessaire)
+
+
+
+```
+
+
+
+
+```{r Total abundance plots}
+###Matrix per Locality
+abundance_aggregated_a<-abundance_aggregated_a %>%filter(!(Order %in% "Lepidoptera"))%>%filter(!(Family %in% "Formicidae"))
+desired_order <- c("Koyli_Alpha", "Widou", "Ranerou") 
+abundance_aggregated_a$Locality<- factor(abundance_aggregated_a$Locality , levels = desired_order)
+
+UniMorpho <- unique(abundance_aggregated_a$morphospecies)#choix de la morphoespèce unique
+uniloc    <- unique(abundance_aggregated_a$Locality)#cette variable reste a changer en fonction du tableau utilisé
+
+# Create a matrix Locs filled with zeros
+# Locs crée une variable avec toutes les morphoespeces en ligne et les colonnes uniques (en fonction du choix fait)
+Locs <- matrix(0, nrow = length(abundance_aggregated_a$morphospecies), ncol = length(uniloc))
+
+
+#Abu = matrice vide pour info unique de morphoespece et de uniloc(qui varie en fonction de la question)
+Abu_K_s <- matrix(0, nrow = length(UniMorpho), ncol = length(uniloc))              
+rownames(Abu_K_s) <- UniMorpho
+colnames(Abu_K_s) <- uniloc
+
+
+# Loop through each element of uniloc
+for (i in seq_along(uniloc)) {
+  # Set the corresponding column in Locs to 1 where the condition is true, result of the matrix presence/absence
+  Locs[, i] <- abundance_aggregated_a$Locality == uniloc[i]
+}                                   
+
+# Loop through each element of UniMorpho
+for (i in seq_along(UniMorpho)) {
+  # Create a logical vector Wh1 based on the condition
+  #binary condition (presence 1 abs 0)
+  Wh1 <- abundance_aggregated_a$morphospecies == UniMorpho[i]
+  
+  # Loop through each element of uniloc
+  for (j in seq_along(uniloc)) {
+    # Use which to get indices where the condition is true
+    A <- which(Wh1 * Locs[, j]!=0)
+    
+    # Sum the corresponding Abun_tree values
+    Abui <- sum(abundance_aggregated_a$Abun_tree[A])
+    
+    # Assign the sum to Locs[i, j],nouvelle matrice avec la somme des toutes les abondances par colonne
+    Abu_K_s[i, j] <- Abui
+  }
+}
+
+
+```
+
+```{r graphs/Localitys}
+##### Indices de diversité de Chao
+ChaoRichness(Abu_K_s)#avec des dataframe, faire en fonction de ce que je cherche, par exemple tel que c'est fait, methode, site, localité, saison
+ChaoShannon(Abu_K_s)
+DataInfo(Abu_K_s)
+
+
+data_info <- DataInfo(Abu_K_s)
+
+
+# Plot bar chart for 'n' and 'S.obs'
+ggplot(data_info, aes(x = Assemblage, y = n, fill = Assemblage)) +
+  theme_bw() +
+  scale_fill_manual(values = c("Koyli_Alpha"="#E31A1C", "Widou"="#33A02C","Ranerou"="#1F78B4")) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = n), vjust = -0.3, position = position_dodge(width = 0.9)) +
+  labs(title = "Bar Plot for the abundance per Locality -all sampling methods ",
+       x = "Locality",
+       y = "Total abundance") +
+  theme_minimal()
+
+
+
+data_info <- ChaoRichness(Abu_K_s)
+data_info$Assemblage<-rownames(data_info)
+
+
+
+# Plot bar chart for 'n' and 'S.obs'
+ggplot(data_info, aes(x = Assemblage, y = Observed, fill = Assemblage)) +
+  theme_bw() +
+  scale_fill_manual(values = c("Koyli_Alpha"="#E31A1C","Widou"="#33A02C","Ranerou"="#1F78B4")) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = Observed), vjust = -0.3, position = position_dodge(width = 0.9)) +
+  labs(title = "Bar Plot for the species richness per Locality - all sampling methods",
+       x = "Locality",
+       y = "Species richness") +
+  theme_minimal()
+
+
+
+#q =c(0,1,2) pour les indices de Hill
+
+nex<-iNEXT(Abu_K_s, q=0, datatype="abundance", size=NULL, endpoint=3000, se=TRUE, conf=0.95)
+df <- fortify(nex, type=1)
+
+df.point <- df[df$Method=="Observed",]
+df.line <- df[df$Method!="Observed",]
+df.line$Method <- as.factor(df.line$Method)
+
+ekn0<-ggplot(df, aes(x=x, y=y, colour=Assemblage)) + 
+  geom_point(aes(shape=Assemblage), size=3, data=df.point) +
+  geom_line(aes(linetype=Method), lwd=1, data=df.line) +
+  geom_ribbon(aes(ymin=y.lwr, ymax=y.upr,
+                  fill=Assemblage, colour=NULL), alpha=0.2) +
+  scale_color_manual(values=c("#1F78B4", "#33A02C", "#E31A1C"))+scale_fill_manual(values=c("#1F78B4", "#33A02C", "#E31A1C"))+
+  labs(x="Abundance", y="Species richness - q=0") +
+  ggtitle("Koyli Alpha - all")  +
+  theme(legend.position = "bottom", 
+        legend.title=element_blank(),
+        text=element_text(size=10),
+        legend.box = "vertical",
+        panel.background = element_blank(),  # Remove background color
+        plot.background = element_blank()) 
+
+
+
+
+
+nex2<-iNEXT(Abu_K_s, q=2, datatype="abundance", size=NULL, endpoint=3000, se=TRUE, conf=0.95)
+df <- fortify(nex2, type=1)
+df.point <- df[df$Method=="Observed",]
+df.line <- df[df$Method!="Observed",]
+df.line$Method <- as.factor(df.line$Method)
+
+ekn2<-ggplot(df, aes(x=x, y=y, colour=Assemblage)) + 
+  geom_point(aes(shape=Assemblage), size=3, data=df.point) +
+  geom_line(aes(linetype=Method), lwd=1, data=df.line) +
+  geom_ribbon(aes(ymin=y.lwr, ymax=y.upr,
+                  fill=Assemblage, colour=NULL), alpha=0.2) +
+  scale_color_manual(values=c("#1F78B4", "#33A02C", "#E31A1C"))+scale_fill_manual(values=c("#1F78B4", "#33A02C", "#E31A1C"))+
+  labs(x="Abundance", y="Simpson diversity - q = 2") +
+  ggtitle("Koyli Alpha - all")  +
+  theme(legend.position = "bottom", 
+        legend.title=element_blank(),
+        text=element_text(size=10),
+        legend.box = "vertical",
+        panel.background = element_blank(),  # Remove background color
+        plot.background = element_blank()) 
+
+ekn0#courbe de rarefaction (changer le nombre de Hill si nécessaire)
+ekn2#courbe de rarefaction (changer le nombre de Hill si nécessaire)
+
+
+
+```
+
+
+# Net glmm Models
+
+```{r Net glmm models -net - abundance }
+
+
+#Net 
+
+subset_data_K_n <- subset(dfs_lists_VB$Balanites_aegyptiaca,
+                        moment == "jour"& season == "J" & Methode == "Net" )
+
+subset_data_K_n<-subset_data_K_n%>%  filter(!(functional_group %in% "generalist_hymenoptera")) %>% filter(!(Order %in% "Lepidoptera"))
+
+
+subset_data_ind_J<- left_join(data_ind_A,subset_data_K_n,by="id_tree", multiple = "all")
+
+desired_order <- c("Koyli_Alpha", "Widou", "Ranerou") 
+subset_data_ind_J$Locality<- factor(subset_data_ind_J$Locality , levels = desired_order)
+
+
+#abundance_aggregated_g<-aggregate(Abun_tree ~id_tree+ site+Locality+flowering+mean_dist+tree_richness+min_dist, data = subset_data_ind_J, sum)#this will be modified depending on the specific guild or order studied 
+
+
+abundance_aggregated_g<-aggregate(Abun_tree ~id_tree+ site+Locality+flowering+mean_dist+tree_richness+diam+h, data = subset_data_ind_J, sum)
+
+
+
+abundance_aggregated_gnetplot<-ggplot(abundance_aggregated_g) +
+  aes(x = Abun_tree, y = Locality, fill = Locality) +
+  geom_boxplot() +
+  scale_fill_hue(direction = 1) +
+  coord_flip() +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_text(size = 13L),
+    axis.title.x = element_text(size = 13L),
+    axis.text.y = element_text(size = 13L),
+    axis.text.x = element_text(size = 13L),
+    legend.text = element_text(size = 12L),
+    legend.title = element_text(size = 13L)
+  )
+abundance_aggregated_gnetplot
+
+
+
+site_col_vector <- RColorBrewer::brewer.pal(n = 3, name = "Dark2") 
+names(site_col_vector) <- c("Depression","Unrestored","Restored")
+
+abundance_aggregated_gnetplotsite<-ggplot(abundance_aggregated_g) +
+  aes(x = Abun_tree, y = site, fill = site) +
+  geom_boxplot() +
+  scale_fill_manual(values = site_col_vector)+
+  coord_flip() +
+  theme_minimal() +
+  facet_wrap(vars(Locality))
+
+abundance_aggregated_gnetplot
+###glmm model
+
+
+candidate_models_AbunJ1<- list(
+glmbn4=glmer.nb(Abun_tree ~ site+(1|Locality), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa")),
+
+glmbn41=glmer.nb(Abun_tree ~ site+flowering+(1|Locality), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa")),
+
+glmbn42=glmer.nb(Abun_tree ~ site+flowering+tree_richness+(1|Locality), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa")),
+
+glmbn43=glmer.nb(Abun_tree ~ site+flowering+tree_richness+mean_dist+(1|Locality), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa")),
+
+glmbn44=glmer.nb(Abun_tree ~ site+flowering+diam+(1|Locality), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa")),
+
+glmbn45=glmer.nb(Abun_tree ~ site+flowering+h+(1|Locality), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa")),
+
+glmbn5=glmer.nb(Abun_tree ~ Locality+(1|site), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa")),
+
+glmbn51=glmer.nb(Abun_tree ~ flowering+Locality+(1|site), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa")),
+
+glmbn52=glmer.nb(Abun_tree ~ flowering+Locality+diam+(1|site), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa")),
+
+glmbn53=glmer.nb(Abun_tree ~ flowering+Locality+tree_richness+(1|site), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa")),
+
+glmbn54=glmer.nb(Abun_tree ~ Locality+h+(1|site), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa")))
+
+
+candidate_models_AbunJ1
+
+
+aic_data <- data.frame(Model = character(), AIC = numeric())
+
+# Calculate AIC for each model
+for (model_name in names(candidate_models_AbunJ1)) {
+  model <- candidate_models_AbunJ1[[model_name]]
+  aic <- AIC(model)
+  aic_data <- rbind(aic_data, data.frame(Model = model_name, AIC = aic))
+}
+
+ aic_data
+
+
+# Control argument specifies the way we optimize the
+# parameter values
+
+glmbn4=glmer.nb(Abun_tree ~ site+(1|Locality), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa"))
+
+
+#glmbn41=glmer.nb(Abun_tree ~ site+flowering+(1|Locality), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa"))
+
+#glmbn42=glmer.nb(Abun_tree ~ site+flowering+tree_richness+(1|Locality), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa"))
+
+#glmbn43=glmer.nb(Abun_tree ~ site+flowering+tree_richness+mean_dist+(1|Locality), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa"))
+
+#glmbn44=glmer.nb(Abun_tree ~ site+flowering+diam+(1|Locality), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa"))
+
+#glmbn45=glmer.nb(Abun_tree ~ site+flowering+h+(1|Locality), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa"))
+
+
+
+glmbn5=glmer.nb(Abun_tree ~ Locality+(1|site), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa"))
+
+#glmbn51=glmer.nb(Abun_tree ~ flowering+Locality+(1|site), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa"))
+
+#glmbn52=glmer.nb(Abun_tree ~ flowering+Locality+diam+(1|site), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa"))
+
+#glmbn53=glmer.nb(Abun_tree ~ flowering+Locality+tree_richness+(1|site), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa"))
+
+glmbn54=glmer.nb(Abun_tree ~ Locality+h+(1|site), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa"))
+
+
+ 
+ 
+ 
+#Estimation des paramètres du modèle par l'approximation de Laplace(Bolker, 2008) -> trop de facteurs aléatoires nécessaires au calcul du modèle pour faire une quadrature de Gausse-Hermite (impossible pour la fonction si plus de 1 et en général si + de 2,3)
+
+summary(glmbn4)
+#summary(glmbn41)
+#summary(glmbn42)
+#summary(glmbn43)
+#summary(glmbn44)
+#summary(glmbn45)
+summary(glmbn5)
+#summary(glmbn51)
+#summary(glmbn52)
+#summary(glmbn53)
+summary(glmbn54)
+
+
+
+
+
+Anova(glmbn4, type=3, method="chisq")
+#Anova(glmbn41, type=3, method="chisq")
+#Anova(glmbn42, type=3, method="chisq")
+#Anova(glmbn43, type=3, method="chisq")
+#Anova(glmbn44, type=3, method="chisq")
+#Anova(glmbn45, type=3, method="chisq")
+
+
+#methode chis2 car glmer et type 3 car plan déséuilibré
+Anova(glmbn5, type=3, method="chisq")
+#Anova(glmbn51, type=3, method="chisq")
+#Anova(glmbn52, type=3, method="chisq")
+#Anova(glmbn53, type=3, method="chisq")
+Anova(glmbn54, type=3, method="chisq")
+
+
+#Test des résidus
+library(DHARMa)
+
+
+plot(simulateResiduals(glmbn4))
+#plot(simulateResiduals(glmbn41))
+#plot(simulateResiduals(glmbn42))
+#plot(simulateResiduals(glmbn43))
+#plot(simulateResiduals(glmbn44))
+#plot(simulateResiduals(glmbn45))
+
+plot(simulateResiduals(glmbn5))
+#plot(simulateResiduals(glmbn51))
+#plot(simulateResiduals(glmbn52))
+#plot(simulateResiduals(glmbn53))
+plot(simulateResiduals(glmbn54))
+
+
+library(MuMIn) #Détermination du r2
+
+r.squaredGLMM(glmbn4)
+#r.squaredGLMM(glmbn41)
+#r.squaredGLMM(glmbn42)
+#r.squaredGLMM(glmbn43)
+#r.squaredGLMM(glmbn45)
+
+r.squaredGLMM(glmbn5)
+#r.squaredGLMM(glmbn53)
+r.squaredGLMM(glmbn54)
+#R2m représente le r avec seulement les effets fixes, et r2c il y a les effets de groupes
+#trigamma la plus fiabl
+
+
+
+
+emtb1 <- lsmeans(glmbn4, ~ site)
+pairs(emtb1)
+
+emtb2 <- lsmeans(glmbn5, ~ Locality) #changer l'écriture de la formule
+pairs(emtb2)
+
+emtb22 <- lsmeans(glmbn54, ~ Locality) #changer l'écriture de la formule
+pairs(emtb22)
+
+
+
+
+```
+```{r Net data abundance matrix/id_tree}
+
+###Matrix per treatment
+
+UniMorpho <- unique(subset_data_ind_J$morphospecies)#choix de la morphoespèce unique
+uniloc    <- unique(subset_data_ind_J$id_tree)#cette variable reste a changer en fonction du tableau utilisé
+
+# Create a matrix Locs filled with zeros
+# Locs crée une variable avec toutes les morphoespeces en ligne et les colonnes uniques (en fonction du choix fait)
+Locs <- matrix(0, nrow = length(subset_data_ind_J$morphospecies), ncol = length(uniloc))
+
+
+#Abu = matrice vide pour info unique de morphoespece et de uniloc(qui varie en fonction de la question)
+Abu_K_tn<- matrix(0, nrow = length(UniMorpho), ncol = length(uniloc))              
+rownames(Abu_K_tn) <- UniMorpho
+colnames(Abu_K_tn) <- uniloc
+
+
+# Loop through each element of uniloc
+for (i in seq_along(uniloc)) {
+  # Set the corresponding column in Locs to 1 where the condition is true, result of the matrix presence/absence
+  Locs[, i] <- subset_data_ind_J$id_tree == uniloc[i]
+}                                   
+
+# Loop through each element of UniMorpho
+for (i in seq_along(UniMorpho)) {
+  # Create a logical vector Wh1 based on the condition
+  #binary condition (presence 1 abs 0)
+  Wh1 <- subset_data_ind_J$morphospecies == UniMorpho[i]
+  
+  # Loop through each element of uniloc
+  for (j in seq_along(uniloc)) {
+    # Use which to get indices where the condition is true
+    A <- which(Wh1 * Locs[, j]!=0)
+    
+    # Sum the corresponding Abun_tree values
+    Abui <- sum(subset_data_ind_J$Abun_tree[A])
+    
+    # Assign the sum to Locs[i, j],nouvelle matrice avec la somme des toutes les abondances par colonne
+    Abu_K_tn[i, j] <- Abui
+  }
+}
+
+
+ChaoRichness(Abu_K_tn)#avec des dataframe, faire en fonction de ce que je cherche, par exemple tel que c'est fait, methode, site, localité, saison
+ChaoShannon(Abu_K_tn)
+DataInfo(Abu_K_tn)
+
+
+
+#data_info <- DataInfo(Abu_K_tn)
+# Plot bar chart for 'n' and 'S.obs'
+#ggplot(data_info, aes(x = Assemblage, y = n, fill = Assemblage)) +
+#  theme_bw() +
+#  geom_bar(stat = "identity", position = "dodge") +
+#  labs(title = "Bar Plot for the abundance per id_tree - Koyli Alpha",
+#       x= "Tree ID",      
+#       y = "Total abundance") +
+#  theme_minimal()
+
+
+#data_info <- ChaoRichness(Abu_K_tn)
+#data_info$id_tree<-rownames(data_info)
+# Plot bar chart for 'n' and 'S.obs'
+#ggplot(data_info, aes(x = id_tree, y = Observed, fill = id_tree)) +
+#  theme_bw() +
+#  geom_bar(stat = "identity", position = "dodge") +
+#    labs(title = "Bar Plot for the species richness per treatment  - Koyli Alpha",
+#          x= "Tree ID",     
+#         y = "Species richness") +
+#  theme_minimal()
+
+
+#Diversity index - q=0,1,2 - Species richness, Shannon, Simpson
+
+q0_result <- iNEXT(Abu_K_tn, q = 0, datatype = "abundance")
+
+q2_result <- iNEXT(Abu_K_tn, q = 2, datatype = "abundance")
+q1_result <- iNEXT(Abu_K_tn, q = 1, datatype = "abundance")
+
+
+q2_result[["AsyEst"]]$id_tree<-q2_result[["AsyEst"]]$Assemblage
+q1_result[["AsyEst"]]$id_tree<-q2_result[["AsyEst"]]$Assemblage
+q0_result[["AsyEst"]]$id_tree<-q2_result[["AsyEst"]]$Assemblage
+
+
+
+dataq2 <- subset(q2_result[["AsyEst"]],
+                        Diversity == "Simpson diversity")
+dataq0 <- subset(q0_result[["AsyEst"]],
+                        Diversity == "Species richness")
+
+dataq1 <- subset(q1_result[["AsyEst"]],
+                        Diversity == "Shannon diversity")
+
+dataq0
+
+dataq2
+
+```
+
+
+```{r Net glmm models diversity indices net}
+#faire une transformation log + 1 s'il y a des valeurs en 0 et tester gaussian distribution
+
+#simpson diversity dataq2$Observed
+
+
+
+### i have removed the glmer gamma
+ 
+ 
+subset_data_ndiversity1<- left_join(dataq1,subset_data_ind_J,by="id_tree", multiple = "all")
+abundance_aggregated_g1 <- unique(subset_data_ndiversity1[, c("id_tree", "site","Locality", "flowering", "mean_dist", "tree_richness","h", "Observed")])
+
+subset_data_ndiversity0<- left_join(dataq0,subset_data_ind_J,by="id_tree", multiple = "all")
+abundance_aggregated_g0 <- unique(subset_data_ndiversity0[, c("id_tree", "site", "Locality", "flowering", "mean_dist", "tree_richness", "h", "Observed")])
+
+desired_order <- c("Koyli_Alpha", "Widou", "Ranerou") 
+abundance_aggregated_g0$Locality<- factor(abundance_aggregated_g0$Locality , levels = desired_order)
+
+abundance_aggregated_g0_plot<-ggplot(abundance_aggregated_g0) +
+  aes(x = Observed, y = Locality, fill = Locality) +
+  geom_boxplot() +
+  scale_fill_hue(direction = 1) +
+  coord_flip() +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_text(size = 13L),
+    axis.title.x = element_text(size = 13L),
+    axis.text.y = element_text(size = 13L),
+    axis.text.x = element_text(size = 13L),
+    legend.text = element_text(size = 12L),
+    legend.title = element_text(size = 13L)
+  )
+
+abundance_aggregated_g0_plot
+
+
+site_col_vector <- RColorBrewer::brewer.pal(n = 3, name = "Dark2") 
+names(site_col_vector) <- c("Depression","Unrestored","Restored")
+
+abundance_aggregated_g0_plotsite<-ggplot(abundance_aggregated_g0) +
+  aes(x = Abun_tree, y = site, fill = site) +
+  geom_boxplot() +
+  scale_fill_manual(values = site_col_vector)+
+  coord_flip() +
+  theme_minimal() +
+  facet_wrap(vars(Locality))
+
+abundance_aggregated_g0_plotsite
+
+
+subset_data_ndiversity2<- left_join(dataq2,subset_data_ind_J,by="id_tree", multiple = "all")
+abundance_aggregated_g2 <- unique(subset_data_ndiversity2[, c("id_tree", "site", "Locality", "flowering", "mean_dist", "tree_richness", "h", "Observed")])
+
+
+
+# Replacement for modelsea0
+modelsea0 <- lm(log1p(Observed) ~ Locality, data = abundance_aggregated_g0)
+
+
+# Replacement for modelsea1
+modelsea1 <- lm(log1p(Observed) ~ Locality, data = abundance_aggregated_g1)
+
+# Replacement for modelsea2
+modelsea2 <- lm(log1p(Observed) ~ Locality, data = abundance_aggregated_g2)
+
+
+
+
+modelsit0 <- lmer(log1p(Observed) ~ site + (1|Locality),
+              data = abundance_aggregated_g0)
+modelsit1 <- lmer(log1p(Observed) ~ site + (1|Locality),
+              data = abundance_aggregated_g1)
+
+modelsit2 <- lmer(log1p(Observed) ~ site + (1|Locality),
+              data = abundance_aggregated_g2)
+
+
+# View the results
+
+summary(modelsea0)
+summary(modelsea1)
+summary(modelsea2)
+
+summary(modelsit0)
+summary(modelsit1)
+summary(modelsit2)
+
+
+# Convert Locality to factor for all datasets
+abundance_aggregated_g0$Locality<- factor(abundance_aggregated_g0$Locality)
+abundance_aggregated_g1$Locality <- factor(abundance_aggregated_g1$Locality)
+abundance_aggregated_g2$Locality <- factor(abundance_aggregated_g2$Locality)
+
+# Relevel Locality to use 'F' as the reference level
+abundance_aggregated_g0$Locality <- relevel(abundance_aggregated_g0$Locality, ref = "Widou")
+abundance_aggregated_g1$Locality<- relevel(abundance_aggregated_g1$Locality, ref = "Widou")
+abundance_aggregated_g2$Locality <- relevel(abundance_aggregated_g2$Locality, ref = "Widou")
+
+# Replacement for modelsea0 with releveling
+modelsea0_replacement <- lm(log1p(Observed) ~ Locality, data = abundance_aggregated_g0)
+summary(modelsea0_replacement)
+
+# Replacement for modelsea1 with releveling
+modelsea1_replacement <- lm(log1p(Observed) ~ Locality, data = abundance_aggregated_g1)
+summary(modelsea1_replacement)
+
+# Replacement for modelsea2 with releveling
+modelsea2_replacement <- lm(log1p(Observed) ~ Locality, data = abundance_aggregated_g2)
+summary(modelsea2_replacement)
+
+
+
+Anova(modelsea1, type=3, method="chisq")
+Anova(modelsea0, type=3, method="chisq")
+Anova(modelsea2, type=3, method="chisq")
+Anova(modelsit1, type=3, method="chisq")
+Anova(modelsit2, type=3, method="chisq")
+Anova(modelsit0, type=3, method="chisq")
+
+#Test des résidus
+library(DHARMa)
+
+
+
+plot(simulateResiduals(modelsea1))
+plot(simulateResiduals(modelsea0))
+plot(simulateResiduals(modelsea2))
+
+
+plot(simulateResiduals(modelsit1))
+#plot(simulateResiduals(modelsit0))
+plot(simulateResiduals(modelsit2))
+
+library(MuMIn) #Détermination du r2
+
+r.squaredGLMM(modelsit1)
+#r.squaredGLMM(modelsit0)
+r.squaredGLMM(modelsit2)
+
+#R2m représente le r avec seulement les effets fixes, et r2c il y a les effets de groupes
+#trigamma la plus fiabl
+
+
+
+
+emtb1 <- lsmeans(modelsit1, ~ site)
+pairs(emtb1)
+
+#emtb0 <- lsmeans(modelsit0, ~ site)
+#pairs(emtb0)
+
+
+emtb2 <- lsmeans(modelsit2, ~ site)
+pairs(emtb2)
+
+
+
+
+
+
+
+```
+
+
+```{r Net glmm models species richness}
+subset_data_ndiversity<- left_join(dataq0,subset_data_ind_J,by="id_tree", multiple = "all")
+
+abundance_aggregated_g0 <- unique(subset_data_ndiversity[, c("id_tree", "site", "Locality", "flowering", "mean_dist", "tree_richness", "h", "diam", "Observed")])
+
+desired_order <- c("Koyli_Alpha", "Widou", "Ranerou") 
+abundance_aggregated_g0$Locality<- factor(abundance_aggregated_g0$Locality , levels = desired_order)
+
+
+
+###glmm model
+
+glmbn41=glm.nb(Observed ~ site, data = abundance_aggregated_g0)
+glmbn51=glm.nb(Observed ~ Locality, data = abundance_aggregated_g0)
+
+#Estimation des paramètres du modèle par l'approximation de Laplace(Bolker, 2008) -> trop de facteurs aléatoires nécessaires au calcul du modèle pour faire une quadrature de Gausse-Hermite (impossible pour la fonction si plus de 1 et en général si + de 2,3)
+
+summary(glmbn41)
+Anova(glmbn41, type=3, method="chisq")
+plot(simulateResiduals(glmbn41))
+r.squaredGLMM(glmbn41)
+
+#R2m représente le r avec seulement les effets fixes, et r2c il y a les effets de groupes
+#trigamma la plus fiabl
+
+emtb11 <- lsmeans(glmbn41, ~ site)
+pairs(emtb11)
+
+
+summary(glmbn51)
+Anova(glmbn51, type=3, method="chisq")
+plot(simulateResiduals(glmbn51))
+r.squaredGLMM(glmbn51)
+
+#R2m représente le r avec seulement les effets fixes, et r2c il y a les effets de groupes
+#trigamma la plus fiabl
+
+emtb12 <- lsmeans(glmbn51, ~ Locality)
+pairs(emtb12)
+
+
+
+
+
+```
+
+
+
+```{r Net courbes accumulation}
+
+###Pour toutes localités confondues : Koyli, Widou, Ranerou en Balanites au piège en Juin (pour eviter qui prenne les autres Koyli)
+
+desired_order <- c("Koyli_Alpha", "Widou", "Ranerou") 
+subset_data_ind_J$Locality<- factor(subset_data_ind_J$Locality , levels = desired_order)
+
+
+UniMorpho <- unique(subset_data_ind_J$morphospecies)#choix de la morphoespèce unique
+uniloc    <- unique(subset_data_ind_J$Locality)#cette variable reste a changer en fonction du tableau utilisé
+
+# Create a matrix Locs filled with zeros
+# Locs crée une variable avec toutes les morphoespeces en ligne et les colonnes uniques (en fonction du choix fait)
+Locs <- matrix(0, nrow = length(subset_data_ind_J$morphospecies), ncol = length(uniloc))
+
+
+#Abu = matrice vide pour info unique de morphoespece et de uniloc(qui varie en fonction de la question)
+Abu_B_N <- matrix(0, nrow = length(UniMorpho), ncol = length(uniloc))              
+rownames(Abu_B_N) <- UniMorpho
+colnames(Abu_B_N) <- uniloc
+
+
+# Loop through each element of uniloc
+for (i in seq_along(uniloc)) {
+  # Set the corresponding column in Locs to 1 where the condition is true, result of the matrix presence/absence
+  Locs[, i] <- subset_data_ind_J$Locality == uniloc[i]
+}                                   
+
+# Loop through each element of UniMorpho
+for (i in seq_along(UniMorpho)) {
+  # Create a logical vector Wh1 based on the condition
+  #binary condition (presence 1 abs 0)
+  Wh1 <- subset_data_ind_J$morphospecies == UniMorpho[i]
+  
+  # Loop through each element of uniloc
+  for (j in seq_along(uniloc)) {
+    # Use which to get indices where the condition is true
+    A <- which(Wh1 * Locs[, j]!=0)
+    
+    # Sum the corresponding Abun_tree values
+    Abui <- sum(subset_data_ind_J$Abun_tree[A])
+    
+    # Assign the sum to Locs[i, j],nouvelle matrice avec la somme des toutes les abondances par colonne
+    Abu_B_N[i, j] <- Abui
+  }
+}
+
+##### Indices de diversité
+ChaoRichness(Abu_B_N)#avec des dataframe, faire en fonction de ce que je cherche, par exemple tel que c'est fait, methode, site, localité, saison
+ChaoShannon(Abu_B_N)
+DataInfo(Abu_B_N)
+
+###par localité
+NEXBN<-data.frame(Abu_B_N)
+K<-nrow(subset(NEXBN, NEXBN$Koyli_Alpha>0))
+W<-nrow(subset(NEXBN, NEXBN$Widou>0))
+R<-nrow(subset(NEXBN, NEXBN$Ranerou>0))
+
+KR<-nrow(subset(NEXBN, NEXBN$Koyli_Alpha>0 & NEXBN$Ranerou>0))
+KW<-nrow(subset(NEXBN, NEXBN$Koyli_Alpha>0 & NEXBN$Widou>0)) 
+WR<-nrow(subset(NEXBN, NEXBN$Widou>0 & NEXBN$Ranerou>0)) 
+KWR<-nrow(subset(NEXBN, NEXBN$Koyli_Alpha>0 & NEXBN$Widou>0 & NEXBN$Ranerou>0))
+
+
+grid.newpage()
+draw.triple.venn(area1 = K, area2 = W, area3 = R, n12 = KW, n23 = WR, n13 = KR, 
+                 n123 = KWR, category = c("Koyli_Alpha", "Widou", "Ranerou"), lty = "blank", 
+                 fill = c("#333333", "#26A69A", "#F57C00"))
+
+
+#q =c(0,1,2) pour les indices de Hill
+nex<-iNEXT(Abu_B_N, q=0, datatype="abundance", size=NULL, endpoint=5000, se=TRUE, conf=0.95)
+df <- fortify(nex, type=1)
+
+df.point <- df[df$Method=="Observed",]
+df.line <- df[df$Method!="Observed",]
+df.line$Method <- as.factor(df.line$Method)
+
+ebn1<-ggplot(df, aes(x=x, y=y, colour=Assemblage)) + 
+  geom_point(aes(shape=Assemblage), size=3, data=df.point) +
+  geom_line(aes(linetype=Method), lwd=1, data=df.line) +
+  geom_ribbon(aes(ymin=y.lwr, ymax=y.upr,
+                  fill=Assemblage, colour=NULL), alpha=0.2) +
+  scale_color_manual(values=c("#333333", "#26A69A", "#F57C00"))+scale_fill_manual(values=c("#333333", "#26A69A", "#F57C00"))+
+  labs(x="Abundance", y="Species richness") +
+  ggtitle("Net")  +
+  theme(legend.position = "bottom", 
+        legend.title=element_blank(),
+        text=element_text(size=10),
+        legend.box = "vertical") 
+
+
+
+
+ebn1#courbe de rarefaction (changer le nombre de Hill si nécessaire)
+
+
+#q =c(0,1,2) pour les indices de Hill
+nex<-iNEXT(Abu_B_N, q=1, datatype="abundance", size=NULL, endpoint=5000, se=TRUE, conf=0.95)
+df <- fortify(nex, type=1)
+
+df.point <- df[df$Method=="Observed",]
+df.line <- df[df$Method!="Observed",]
+df.line$Method <- as.factor(df.line$Method)
+
+ebn1<-ggplot(df, aes(x=x, y=y, colour=Assemblage)) + 
+  geom_point(aes(shape=Assemblage), size=3, data=df.point) +
+  geom_line(aes(linetype=Method), lwd=1, data=df.line) +
+  geom_ribbon(aes(ymin=y.lwr, ymax=y.upr,
+                  fill=Assemblage, colour=NULL), alpha=0.2) +
+  scale_color_manual(values=c("#333333", "#26A69A", "#F57C00"))+scale_fill_manual(values=c("#333333", "#26A69A", "#F57C00"))+
+  labs(x="Abundance", y="Species richness") +
+  ggtitle("Net")  +
+  theme(legend.position = "bottom", 
+        legend.title=element_blank(),
+        text=element_text(size=10),
+        legend.box = "vertical") 
+ebn1#courbe de rarefaction (changer le nombre de Hill si nécessaire)
+
+#q =c(0,1,2) pour les indices de Hill
+nex<-iNEXT(Abu_B_N, q=2, datatype="abundance", size=NULL, endpoint=5000, se=TRUE, conf=0.95)
+df <- fortify(nex, type=1)
+
+df.point <- df[df$Method=="Observed",]
+df.line <- df[df$Method!="Observed",]
+df.line$Method <- as.factor(df.line$Method)
+
+ebn1<-ggplot(df, aes(x=x, y=y, colour=Assemblage)) + 
+  geom_point(aes(shape=Assemblage), size=3, data=df.point) +
+  geom_line(aes(linetype=Method), lwd=1, data=df.line) +
+  geom_ribbon(aes(ymin=y.lwr, ymax=y.upr,
+                  fill=Assemblage, colour=NULL), alpha=0.2) +
+  scale_color_manual(values=c("#333333", "#26A69A", "#F57C00"))+scale_fill_manual(values=c("#333333", "#26A69A", "#F57C00"))+
+  labs(x="Abundance", y="Species richness") +
+  ggtitle("Net")  +
+  theme(legend.position = "bottom", 
+        legend.title=element_blank(),
+        text=element_text(size=10),
+        legend.box = "vertical") 
+
+
+ebn1#courbe de rarefaction (changer le nombre de Hill si nécessaire)
+
+
+```
+
+
+
+```{r Net sankey network morphospecies}
+desired_order <- c("Koyli_Alpha", "Widou", "Ranerou")  # Add more items as needed
+
+# Reorder the columns of your data frame to match the desired order
+Abu_B_N <- Abu_B_N[, desired_order]
+
+
+Abu_B_N<-as.data.frame(Abu_B_N)
+
+# I need a long format
+data_long <- Abu_B_N %>%
+  rownames_to_column %>%
+  gather(key = 'key', value = 'value', -rowname) %>%
+  filter(value > 0)
+colnames(data_long) <- c("source", "target", "value")
+data_long$target <- paste(data_long$target, " ", sep="")
+#data_long <- data_long %>% arrange(desc(value))
+
+# From these flows we need to create a node data frame: it lists every entities involved in the flow
+nodes <- data.frame(name=c(as.character(data_long$source), as.character(data_long$target)) %>% unique())
+
+# With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
+data_long$IDsource=match(data_long$source, nodes$name)-1 
+data_long$IDtarget=match(data_long$target, nodes$name)-1
+
+# prepare colour scale
+#ColourScal ='d3.scaleOrdinal() .range(["#FDE725FF","#B4DE2CFF","#6DCD59FF","#35B779FF","#1F9E89FF","#26828EFF","#31688EFF","#3E4A89FF","#482878FF","#440154FF"])'
+
+#specificColor <- 'd3.scaleOrdinal().domain(["Koyli_Alpha", "Widou", "Ranerou"]).range(["#ff5733", "#33ff57", "#3357ff"])+3.scaleOrdinal().range(d3.schemeCategory10)'
+ColourScal <- 'd3.scaleOrdinal().range(d3.schemeCategory10)'
+
+
+# Make the Network
+sankeyNetwork(Links = data_long, Nodes = nodes,
+              Source = "IDsource", Target = "IDtarget",
+              Value = "value", NodeID = "name", 
+              sinksRight=FALSE, 
+              colourScale = ColourScal, 
+              nodeWidth = 40, fontSize = 10, nodePadding = 2)
+```
+
+```{r Net sankey network functional groups}
+desired_order <- c("Koyli_Alpha", "Widou", "Ranerou") 
+subset_data_ind_J$Locality<- factor(subset_data_ind_J$Locality , levels = desired_order)
+
+
+UniMorpho <- unique(subset_data_ind_J$functional_group)#choix de la morphoespèce unique
+uniloc    <- unique(subset_data_ind_J$Locality)#cette variable reste a changer en fonction du tableau utilisé
+
+# Create a matrix Locs filled with zeros
+# Locs crée une variable avec toutes les morphoespeces en ligne et les colonnes uniques (en fonction du choix fait)
+Locs <- matrix(0, nrow = length(subset_data_ind_J$functional_group), ncol = length(uniloc))
+
+
+#Abu = matrice vide pour info unique de morphoespece et de uniloc(qui varie en fonction de la question)
+Abu_B_N <- matrix(0, nrow = length(UniMorpho), ncol = length(uniloc))              
+rownames(Abu_B_N) <- UniMorpho
+colnames(Abu_B_N) <- uniloc
+
+
+# Loop through each element of uniloc
+for (i in seq_along(uniloc)) {
+  # Set the corresponding column in Locs to 1 where the condition is true, result of the matrix presence/absence
+  Locs[, i] <- subset_data_ind_J$Locality == uniloc[i]
+}                                   
+
+# Loop through each element of UniMorpho
+for (i in seq_along(UniMorpho)) {
+  # Create a logical vector Wh1 based on the condition
+  #binary condition (presence 1 abs 0)
+  Wh1 <- subset_data_ind_J$functional_group == UniMorpho[i]
+  
+  # Loop through each element of uniloc
+  for (j in seq_along(uniloc)) {
+    # Use which to get indices where the condition is true
+    A <- which(Wh1 * Locs[, j]!=0)
+    
+    # Sum the corresponding Abun_tree values
+    Abui <- sum(subset_data_ind_J$Abun_tree[A])
+    
+    # Assign the sum to Locs[i, j],nouvelle matrice avec la somme des toutes les abondances par colonne
+    Abu_B_N[i, j] <- Abui
+  }
+}
+
+
+
+
+
+desired_order <- c("Koyli_Alpha", "Widou", "Ranerou")  # Add more items as needed
+
+# Reorder the columns of your data frame to match the desired order
+Abu_B_N <- Abu_B_N[, desired_order]
+
+
+Abu_B_N<-as.data.frame(Abu_B_N)
+
+# I need a long format
+data_long <- Abu_B_N %>%
+  rownames_to_column %>%
+  gather(key = 'key', value = 'value', -rowname) %>%
+  filter(value > 0)
+colnames(data_long) <- c("source", "target", "value")
+data_long$target <- paste(data_long$target, " ", sep="")
+#data_long <- data_long %>% arrange(desc(value))
+
+# From these flows we need to create a node data frame: it lists every entities involved in the flow
+nodes <- data.frame(name=c(as.character(data_long$source), as.character(data_long$target)) %>% unique())
+
+# With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
+data_long$IDsource=match(data_long$source, nodes$name)-1 
+data_long$IDtarget=match(data_long$target, nodes$name)-1
+
+# prepare colour scale
+#ColourScal ='d3.scaleOrdinal() .range(["#FDE725FF","#B4DE2CFF","#6DCD59FF","#35B779FF","#1F9E89FF","#26828EFF","#31688EFF","#3E4A89FF","#482878FF","#440154FF"])'
+
+#specificColor <- 'd3.scaleOrdinal().domain(["Koyli_Alpha", "Widou", "Ranerou"]).range(["#ff5733", "#33ff57", "#3357ff"])+3.scaleOrdinal().range(d3.schemeCategory10)'
+ColourScal <- 'd3.scaleOrdinal().range(d3.schemeCategory10)'
+
+
+# Make the Network
+sankeyNetwork(Links = data_long, Nodes = nodes,
+              Source = "IDsource", Target = "IDtarget",
+              Value = "value", NodeID = "name", 
+              sinksRight=FALSE, 
+              colourScale = ColourScal, 
+              nodeWidth = 40, fontSize = 10, nodePadding = 2)
+```
+
+
+
+
+
+
+
+
+
+# Pantrap glmm Models
+
+```{r pantrap glmm models -pantrap - abundance }
+
+
+
+
+subset_data_K_p <- subset(dfs_lists_VB$Balanites_aegyptiaca,
+                        moment == "jour"& season == "J" & Methode == "Pantrap" )
+
+subset_data_K_p <-subset_data_K_p %>%  filter(!(functional_group %in% "generalist_hymenoptera")) %>% filter(!(Order %in% "Lepidoptera"))
+
+#subset_data_ind_J<- left_join(data_ind_A,subset_data_K_p, by="id_tree", multiple = "all")
+
+#abundance_aggregated_g<-aggregate(Abun_tree ~id_tree+ site+Locality+flowering+mean_dist+tree_richness+min_dist, data = subset_data_ind_J, sum)#this will be modified depending on the specific guild or order studied 
+
+
+abundance_aggregated_gp<-aggregate(Abun_tree ~id_tree+ site+Locality, data = subset_data_K_p, sum)
+
+desired_order <- c("Koyli_Alpha", "Widou", "Ranerou") 
+abundance_aggregated_gp$Locality<- factor(abundance_aggregated_gp$Locality , levels = desired_order)
+
+abundance_aggregated_gp_plot<-ggplot(abundance_aggregated_gp) +
+  aes(x = Abun_tree, y = Locality, fill = Locality) +
+  geom_boxplot() +
+  scale_fill_hue(direction = 1) +
+  coord_flip() +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_text(size = 13L),
+    axis.title.x = element_text(size = 13L),
+    axis.text.y = element_text(size = 13L),
+    axis.text.x = element_text(size = 13L),
+    legend.text = element_text(size = 12L),
+    legend.title = element_text(size = 13L)
+  )
+abundance_aggregated_gp_plot
+
+
+
+abundance_aggregated_gp_plotsite<-ggplot(abundance_aggregated_gp) +
+  aes(x = Abun_tree, y = site, fill = site) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "Dark2", direction = 1) +
+  coord_flip() +
+  theme_minimal() +
+  facet_wrap(vars(Locality))
+
+abundance_aggregated_gp_plotsite
+###glmm model
+
+
+candidate_models_AbunJp1<- list(
+glmbn4=glmer.nb(Abun_tree ~ site+(1|Locality), data = abundance_aggregated_gp, control = glmerControl(optimizer = "bobyqa")),
+glmbn41=glm.nb(Abun_tree ~ site, data = abundance_aggregated_gp),
+
+
+glmbn5=glmer.nb(Abun_tree ~ Locality+(1|site), data = abundance_aggregated_gp, control = glmerControl(optimizer = "bobyqa")),
+
+glmbn51=glm.nb(Abun_tree ~ Locality, data = abundance_aggregated_gp)
+)
+
+
+candidate_models_AbunJp1
+
+
+aic_data <- data.frame(Model = character(), AIC = numeric())
+
+# Calculate AIC for each model
+for (model_name in names(candidate_models_AbunJp1)) {
+  model <- candidate_models_AbunJp1[[model_name]]
+  aic <- AIC(model)
+  aic_data <- rbind(aic_data, data.frame(Model = model_name, AIC = aic))
+}
+
+ aic_data
+
+
+# Control argument specifies the way we optimize the
+# parameter values
+
+glmbn4=glmer.nb(Abun_tree ~ site+(1|Locality), data = abundance_aggregated_gp, control = glmerControl(optimizer = "bobyqa"))
+
+
+
+#glmbn41=glm.nb(Abun_tree ~ site, data = abundance_aggregated_gp, control = glmerControl(optimizer = "bobyqa")),
+
+
+glmbn5=glmer.nb(Abun_tree ~ Locality+(1|site), data = abundance_aggregated_gp, control = glmerControl(optimizer = "bobyqa"))
+glmbn51=glm.nb(Abun_tree ~ Locality, data = abundance_aggregated_gp)
+
+#glmbn51=glmer.nb(Abun_tree ~ flowering+Locality+(1|site), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa"))
+
+#glmbn52=glmer.nb(Abun_tree ~ flowering+Locality+diam+(1|site), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa"))
+
+#glmbn53=glmer.nb(Abun_tree ~ flowering+Locality+tree_richness+(1|site), data = abundance_aggregated_g, control = glmerControl(optimizer = "bobyqa"))
+
+
+
+ 
+ 
+ 
+#Estimation des paramètres du modèle par l'approximation de Laplace(Bolker, 2008) -> trop de facteurs aléatoires nécessaires au calcul du modèle pour faire une quadrature de Gausse-Hermite (impossible pour la fonction si plus de 1 et en général si + de 2,3)
+
+summary(glmbn4)
+#summary(glmbn41)
+#summary(glmbn42)
+#summary(glmbn43)
+#summary(glmbn44)
+#summary(glmbn45)
+summary(glmbn5)
+#summary(glmbn51)
+#summary(glmbn52)
+#summary(glmbn53)
+summary(glmbn51)
+
+
+
+
+
+Anova(glmbn4, type=3, method="chisq")
+Anova(glmbn41, type=3, method="chisq")
+#Anova(glmbn42, type=3, method="chisq")
+#Anova(glmbn43, type=3, method="chisq")
+#Anova(glmbn44, type=3, method="chisq")
+#Anova(glmbn45, type=3, method="chisq")
+
+
+#methode chis2 car glmer et type 3 car plan déséuilibré
+Anova(glmbn5, type=3, method="chisq")
+#Anova(glmbn51, type=3, method="chisq")
+#Anova(glmbn52, type=3, method="chisq")
+#Anova(glmbn53, type=3, method="chisq")
+Anova(glmbn51, type=3, method="chisq")
+
+
+#Test des résidus
+library(DHARMa)
+
+
+plot(simulateResiduals(glmbn4))
+plot(simulateResiduals(glmbn41))
+#plot(simulateResiduals(glmbn42))
+#plot(simulateResiduals(glmbn43))
+#plot(simulateResiduals(glmbn44))
+#plot(simulateResiduals(glmbn45))
+
+plot(simulateResiduals(glmbn5))
+plot(simulateResiduals(glmbn51))
+#plot(simulateResiduals(glmbn52))
+#plot(simulateResiduals(glmbn53))
+#plot(simulateResiduals(glmbn54))
+
+
+library(MuMIn) #Détermination du r2
+
+r.squaredGLMM(glmbn4)
+r.squaredGLMM(glmbn41)
+#r.squaredGLMM(glmbn42)
+#r.squaredGLMM(glmbn43)
+#r.squaredGLMM(glmbn45)
+
+r.squaredGLMM(glmbn5)
+#r.squaredGLMM(glmbn53)
+r.squaredGLMM(glmbn51)
+#R2m représente le r avec seulement les effets fixes, et r2c il y a les effets de groupes
+#trigamma la plus fiabl
+
+
+
+
+emtb1 <- lsmeans(glmbn4, ~ site)
+pairs(emtb1)
+
+emtb2 <- lsmeans(glmbn5, ~ Locality) #changer l'écriture de la formule
+pairs(emtb2)
+
+emtb22 <- lsmeans(glmbn51, ~ Locality) #changer l'écriture de la formule
+pairs(emtb22)
+
+
+
+model2ab <- lm(log1p(Abun_tree) ~ Locality, data = abundance_aggregated_gp)
+summary(model2ab)
+
+plot(simulateResiduals(model2ab))
+Anova(model2ab, type=3, method="chisq")
+
+
+```
+
+```{r data abundance matrix/id_tree _ pantrap}
+
+###Matrix per treatment
+
+UniMorpho <- unique(subset_data_K_p$morphospecies)#choix de la morphoespèce unique
+uniloc    <- unique(subset_data_K_p$id_tree)#cette variable reste a changer en fonction du tableau utilisé
+
+# Create a matrix Locs filled with zeros
+# Locs crée une variable avec toutes les morphoespeces en ligne et les colonnes uniques (en fonction du choix fait)
+Locs <- matrix(0, nrow = length(subset_data_K_p$morphospecies), ncol = length(uniloc))
+
+
+#Abu = matrice vide pour info unique de morphoespece et de uniloc(qui varie en fonction de la question)
+Abu_K_tp<- matrix(0, nrow = length(UniMorpho), ncol = length(uniloc))              
+rownames(Abu_K_tp) <- UniMorpho
+colnames(Abu_K_tp) <- uniloc
+
+
+# Loop through each element of uniloc
+for (i in seq_along(uniloc)) {
+  # Set the corresponding column in Locs to 1 where the condition is true, result of the matrix presence/absence
+  Locs[, i] <- subset_data_K_p$id_tree == uniloc[i]
+}                                   
+
+# Loop through each element of UniMorpho
+for (i in seq_along(UniMorpho)) {
+  # Create a logical vector Wh1 based on the condition
+  #binary condition (presence 1 abs 0)
+  Wh1 <- subset_data_K_p$morphospecies == UniMorpho[i]
+  
+  # Loop through each element of uniloc
+  for (j in seq_along(uniloc)) {
+    # Use which to get indices where the condition is true
+    A <- which(Wh1 * Locs[, j]!=0)
+    
+    # Sum the corresponding Abun_tree values
+    Abui <- sum(subset_data_K_p$Abun_tree[A])
+    
+    # Assign the sum to Locs[i, j],nouvelle matrice avec la somme des toutes les abondances par colonne
+    Abu_K_tp[i, j] <- Abui
+  }
+}
+
+
+ChaoRichness(Abu_K_tp)#avec des dataframe, faire en fonction de ce que je cherche, par exemple tel que c'est fait, methode, site, localité, saison
+ChaoShannon(Abu_K_tp)
+DataInfo(Abu_K_tp)
+
+
+
+#data_info <- DataInfo(Abu_K_tn)
+# Plot bar chart for 'n' and 'S.obs'
+#ggplot(data_info, aes(x = Assemblage, y = n, fill = Assemblage)) +
+#  theme_bw() +
+#  geom_bar(stat = "identity", position = "dodge") +
+#  labs(title = "Bar Plot for the abundance per id_tree - Koyli Alpha",
+#       x= "Tree ID",      
+#       y = "Total abundance") +
+#  theme_minimal()
+
+
+#data_info <- ChaoRichness(Abu_K_tn)
+#data_info$id_tree<-rownames(data_info)
+# Plot bar chart for 'n' and 'S.obs'
+#ggplot(data_info, aes(x = id_tree, y = Observed, fill = id_tree)) +
+#  theme_bw() +
+#  geom_bar(stat = "identity", position = "dodge") +
+#    labs(title = "Bar Plot for the species richness per treatment  - Koyli Alpha",
+#          x= "Tree ID",     
+#         y = "Species richness") +
+#  theme_minimal()
+
+
+#Diversity index - q=0,1,2 - Species richness, Shannon, Simpson
+
+q0_result <- iNEXT(Abu_K_tp, q = 0, datatype = "abundance")
+
+q2_result <- iNEXT(Abu_K_tp, q = 2, datatype = "abundance")
+q1_result <- iNEXT(Abu_K_tp, q = 1, datatype = "abundance")
+
+
+q2_result[["AsyEst"]]$id_tree<-q2_result[["AsyEst"]]$Assemblage
+q1_result[["AsyEst"]]$id_tree<-q2_result[["AsyEst"]]$Assemblage
+q0_result[["AsyEst"]]$id_tree<-q2_result[["AsyEst"]]$Assemblage
+
+
+
+dataq2 <- subset(q2_result[["AsyEst"]],
+                        Diversity == "Simpson diversity")
+dataq0 <- subset(q0_result[["AsyEst"]],
+                        Diversity == "Species richness")
+
+dataq1 <- subset(q1_result[["AsyEst"]],
+                        Diversity == "Shannon diversity")
+
+```
+
+
+
+
+```{r pantrap glmm models diversity indices net}
+#faire une transformation log + 1 s'il y a des valeurs en 0 et tester gaussian distribution
+
+#simpson diversity dataq2$Observed
+
+
+
+### i have removed the glmer gamma
+ 
+ 
+subset_data_ndiversity1<- left_join(dataq1,subset_data_K_p,by="id_tree", multiple = "all")
+abundance_aggregated_g1 <- unique(subset_data_ndiversity1[, c("id_tree", "site","Locality","Observed")])
+
+subset_data_ndiversity0<- left_join(dataq0,subset_data_K_p,by="id_tree", multiple = "all")
+abundance_aggregated_g0 <- unique(subset_data_ndiversity0[, c("id_tree", "site", "Locality", "Observed")])
+
+desired_order <- c("Koyli_Alpha", "Widou", "Ranerou") 
+abundance_aggregated_g0$Locality<- factor(abundance_aggregated_g0$Locality , levels = desired_order)
+
+abundance_aggregated_g0p_plot<-ggplot(abundance_aggregated_g0) +
+  aes(x = Observed, y = Locality, fill = Locality) +
+  geom_boxplot() +
+  scale_fill_hue(direction = 1) +
+  coord_flip() +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_text(size = 13L),
+    axis.title.x = element_text(size = 13L),
+    axis.text.y = element_text(size = 13L),
+    axis.text.x = element_text(size = 13L),
+    legend.text = element_text(size = 12L),
+    legend.title = element_text(size = 13L)
+  )
+abundance_aggregated_g0p_plot
+
+
+site_col_vector <- RColorBrewer::brewer.pal(n = 3, name = "Dark2") 
+names(site_col_vector) <- c("Depression","Unrestored","Restored")
+
+abundance_aggregated_g0p_plotsite<-ggplot(abundance_aggregated_g0) +
+  aes(x = Observed, y = site, fill = site) +
+  geom_boxplot() +
+  scale_fill_manual(values = site_col_vector) +
+  coord_flip() +
+  theme_minimal() +
+  facet_wrap(vars(Locality))
+abundance_aggregated_g0p_plotsite
+
+subset_data_ndiversity2<- left_join(dataq2,subset_data_K_p,by="id_tree", multiple = "all")
+abundance_aggregated_g2 <- unique(subset_data_ndiversity2[, c("id_tree", "site", "Locality", "Observed")])
+
+ 
+
+# Replacement for modelsea0
+modelsea0 <- lm(log1p(Observed) ~ Locality, data = abundance_aggregated_g0)
+
+
+# Replacement for modelsea1
+modelsea1 <- lm(log1p(Observed) ~ Locality, data = abundance_aggregated_g1)
+
+# Replacement for modelsea2
+modelsea2 <- lm(log1p(Observed) ~ Locality, data = abundance_aggregated_g2)
+
+
+
+
+modelsit0 <- lmer(log1p(Observed) ~ site + (1|Locality),
+              data = abundance_aggregated_g0)
+modelsit1 <- lmer(log1p(Observed) ~ site + (1|Locality),
+              data = abundance_aggregated_g1)
+
+modelsit2 <- lmer(log1p(Observed) ~ site + (1|Locality),
+              data = abundance_aggregated_g2)
+
+
+# View the results
+
+summary(modelsea0)
+summary(modelsea1)
+summary(modelsea2)
+
+summary(modelsit0)
+summary(modelsit1)
+summary(modelsit2)
+
+
+# Convert Locality to factor for all datasets
+abundance_aggregated_g0$Locality<- factor(abundance_aggregated_g0$Locality)
+abundance_aggregated_g1$Locality <- factor(abundance_aggregated_g1$Locality)
+abundance_aggregated_g2$Locality <- factor(abundance_aggregated_g2$Locality)
+
+# Relevel Locality to use Widou as the reference level
+abundance_aggregated_g0$Locality <- relevel(abundance_aggregated_g0$Locality, ref = "Widou")
+abundance_aggregated_g1$Locality<- relevel(abundance_aggregated_g1$Locality, ref = "Widou")
+abundance_aggregated_g2$Locality <- relevel(abundance_aggregated_g2$Locality, ref = "Widou")
+
+# Replacement for modelsea0 with releveling
+modelsea0_replacement <- lm(log1p(Observed) ~ Locality, data = abundance_aggregated_g0)
+summary(modelsea0_replacement)
+
+# Replacement for modelsea1 with releveling
+modelsea1_replacement <- lm(log1p(Observed) ~ Locality, data = abundance_aggregated_g1)
+summary(modelsea1_replacement)
+
+# Replacement for modelsea2 with releveling
+modelsea2_replacement <- lm(log1p(Observed) ~ Locality, data = abundance_aggregated_g2)
+summary(modelsea2_replacement)
+
+
+
+Anova(modelsea1, type=3, method="chisq")
+Anova(modelsea0, type=3, method="chisq")
+Anova(modelsea2, type=3, method="chisq")
+Anova(modelsit1, type=3, method="chisq")
+Anova(modelsit2, type=3, method="chisq")
+Anova(modelsit0, type=3, method="chisq")
+
+#Test des résidus
+library(DHARMa)
+
+
+
+plot(simulateResiduals(modelsea1))
+plot(simulateResiduals(modelsea0))
+plot(simulateResiduals(modelsea2))
+
+
+plot(simulateResiduals(modelsit1))
+#plot(simulateResiduals(modelsit0))
+plot(simulateResiduals(modelsit2))
+
+library(MuMIn) #Détermination du r2
+
+r.squaredGLMM(modelsit1)
+#r.squaredGLMM(modelsit0)
+r.squaredGLMM(modelsit2)
+
+#R2m représente le r avec seulement les effets fixes, et r2c il y a les effets de groupes
+#trigamma la plus fiabl
+
+
+
+
+emtb1 <- lsmeans(modelsit1, ~ site)
+pairs(emtb1)
+
+#emtb0 <- lsmeans(modelsit0, ~ site)
+#pairs(emtb0)
+
+
+emtb2 <- lsmeans(modelsit2, ~ site)
+pairs(emtb2)
+
+
+
+
+
+
+
+```
+
+
+
+
+```{r pantrap accumulative richness}
+UniMorpho <- unique(subset_data_K_p$morphospecies)#choix de la morphoespèce unique
+uniloc    <- unique(subset_data_K_p$Locality)#cette variable reste a changer en fonction du tableau utilisé
+
+# Create a matrix Locs filled with zeros
+# Locs crée une variable avec toutes les morphoespeces en ligne et les colonnes uniques (en fonction du choix fait)
+Locs <- matrix(0, nrow = length(subset_data_K_p$morphospecies), ncol = length(uniloc))
+
+
+#Abu = matrice vide pour info unique de morphoespece et de uniloc(qui varie en fonction de la question)
+Abu_B_P <- matrix(0, nrow = length(UniMorpho), ncol = length(uniloc))              
+rownames(Abu_B_P) <- UniMorpho
+colnames(Abu_B_P) <- uniloc
+
+
+# Loop through each element of uniloc
+for (i in seq_along(uniloc)) {
+  # Set the corresponding column in Locs to 1 where the condition is true, result of the matrix presence/absence
+  Locs[, i] <- subset_data_K_p$Locality == uniloc[i]
+}                                   
+
+# Loop through each element of UniMorpho
+for (i in seq_along(UniMorpho)) {
+  # Create a logical vector Wh1 based on the condition
+  #binary condition (presence 1 abs 0)
+  Wh1 <- subset_data_K_p$morphospecies == UniMorpho[i]
+  
+  # Loop through each element of uniloc
+  for (j in seq_along(uniloc)) {
+    # Use which to get indices where the condition is true
+    A <- which(Wh1 * Locs[, j]!=0)
+    
+    # Sum the corresponding Abun_tree values
+    Abui <- sum(subset_data_K_p$Abun_tree[A])
+    
+    # Assign the sum to Locs[i, j],nouvelle matrice avec la somme des toutes les abondances par colonne
+    Abu_B_P[i, j] <- Abui
+  }
+}
+
+
+##### Indices de diversité
+ChaoRichness(Abu_B_P)#avec des dataframe, faire en fonction de ce que je cherche, par exemple tel que c'est fait, methode, site, localité, saison
+ChaoShannon(Abu_B_P)
+DataInfo(Abu_B_P)
+
+###par localité
+NEXBP<-data.frame(Abu_B_P)
+K<-nrow(subset(NEXBP, NEXBP$Koyli_Alpha>0))
+W<-nrow(subset(NEXBP, NEXBP$Widou>0))
+R<-nrow(subset(NEXBP, NEXBP$Ranerou>0))
+
+KR<-nrow(subset(NEXBP, NEXBP$Koyli_Alpha>0 & NEXBP$Ranerou>0))
+KW<-nrow(subset(NEXBP, NEXBP$Koyli_Alpha>0 & NEXBP$Widou>0)) 
+WR<-nrow(subset(NEXBP, NEXBP$Widou>0 & NEXBP$Ranerou>0)) 
+KWR<-nrow(subset(NEXBP, NEXBP$Koyli_Alpha>0 & NEXBP$Widou>0 & NEXBP$Ranerou>0))
+
+
+grid.newpage()
+draw.triple.venn(area1 = K, area2 = W, area3 = R, n12 = KW, n23 = WR, n13 = KR, 
+                 n123 = KWR, category = c("Koyli_Alpha", "Widou", "Ranerou"), lty = "blank", 
+                 fill = c("#333333", "#26A69A", "#F57C00"))
+
+
+#q =c(0,1,2) pour les indices de Hill
+nex<-iNEXT(Abu_B_P, q=0, datatype="abundance", size=NULL, endpoint=5000, se=TRUE, conf=0.95)
+df <- fortify(nex, type=1)
+
+df.point <- df[df$Method=="Observed",]
+df.line <- df[df$Method!="Observed",]
+df.line$Method <- as.factor(df.line$Method)
+
+ebp1<-ggplot(df, aes(x=x, y=y, colour=Assemblage)) + 
+  geom_point(aes(shape=Assemblage), size=3, data=df.point) +
+  geom_line(aes(linetype=Method), lwd=1, data=df.line) +
+  geom_ribbon(aes(ymin=y.lwr, ymax=y.upr,
+                  fill=Assemblage, colour=NULL), alpha=0.2) +
+  scale_color_manual(values=c("#333333", "#26A69A", "#F57C00"))+scale_fill_manual(values=c("#333333", "#26A69A", "#F57C00"))+
+  labs(x="Abundance", y="Species richness") +
+  ggtitle("Pantrap")  +
+  theme(legend.position = "bottom", 
+        legend.title=element_blank(),
+        text=element_text(size=10),
+        legend.box = "vertical") 
+
+
+ebp1#courbe de rarefaction (changer le nombre de Hill si nécessaire)
+
+
+
+
+#q =c(0,1,2) pour les indices de Hill
+nex<-iNEXT(Abu_B_P, q=1, datatype="abundance", size=NULL, endpoint=5000, se=TRUE, conf=0.95)
+df <- fortify(nex, type=1)
+
+df.point <- df[df$Method=="Observed",]
+df.line <- df[df$Method!="Observed",]
+df.line$Method <- as.factor(df.line$Method)
+
+ebp1<-ggplot(df, aes(x=x, y=y, colour=Assemblage)) + 
+  geom_point(aes(shape=Assemblage), size=3, data=df.point) +
+  geom_line(aes(linetype=Method), lwd=1, data=df.line) +
+  geom_ribbon(aes(ymin=y.lwr, ymax=y.upr,
+                  fill=Assemblage, colour=NULL), alpha=0.2) +
+  scale_color_manual(values=c("#333333", "#26A69A", "#F57C00"))+scale_fill_manual(values=c("#333333", "#26A69A", "#F57C00"))+
+  labs(x="Abundance", y="Species richness") +
+  ggtitle("Pantrap")  +
+  theme(legend.position = "bottom", 
+        legend.title=element_blank(),
+        text=element_text(size=10),
+        legend.box = "vertical") 
+
+
+ebp1#courbe de rarefaction (changer le nombre de Hill si nécessaire)
+
+
+
+#q =c(0,1,2) pour les indices de Hill
+nex<-iNEXT(Abu_B_P, q=2, datatype="abundance", size=NULL, endpoint=5000, se=TRUE, conf=0.95)
+df <- fortify(nex, type=1)
+
+df.point <- df[df$Method=="Observed",]
+df.line <- df[df$Method!="Observed",]
+df.line$Method <- as.factor(df.line$Method)
+
+ebp1<-ggplot(df, aes(x=x, y=y, colour=Assemblage)) + 
+  geom_point(aes(shape=Assemblage), size=3, data=df.point) +
+  geom_line(aes(linetype=Method), lwd=1, data=df.line) +
+  geom_ribbon(aes(ymin=y.lwr, ymax=y.upr,
+                  fill=Assemblage, colour=NULL), alpha=0.2) +
+  scale_color_manual(values=c("#333333", "#26A69A", "#F57C00"))+scale_fill_manual(values=c("#333333", "#26A69A", "#F57C00"))+
+  labs(x="Abundance", y="Species richness") +
+  ggtitle("Pantrap")  +
+  theme(legend.position = "bottom", 
+        legend.title=element_blank(),
+        text=element_text(size=10),
+        legend.box = "vertical") 
+
+
+ebp1#courbe de rarefaction (changer le nombre de Hill si nécessaire)
+```
+
+```{r Pantrap sankey network - morphospecies}
+
+desired_order <- c("Koyli_Alpha", "Widou", "Ranerou")  # Add more items as needed
+
+# Reorder the columns of your data frame to match the desired order
+Abu_B_P <- Abu_B_P[, desired_order]
+
+
+Abu_B_P<-as.data.frame(Abu_B_P)
+
+# I need a long format
+data_long <- Abu_B_P %>%
+  rownames_to_column %>%
+  gather(key = 'key', value = 'value', -rowname) %>%
+  filter(value > 0)
+colnames(data_long) <- c("source", "target", "value")
+data_long$target <- paste(data_long$target, " ", sep="")
+
+
+# From these flows we need to create a node data frame: it lists every entities involved in the flow
+nodes <- data.frame(name=c(as.character(data_long$source), as.character(data_long$target)) %>% unique())
+
+# With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
+data_long$IDsource=match(data_long$source, nodes$name)-1 
+data_long$IDtarget=match(data_long$target, nodes$name)-1
+
+# prepare colour scale
+#ColourScal ='d3.scaleOrdinal() .range(["#FDE725FF","#B4DE2CFF","#6DCD59FF","#35B779FF","#1F9E89FF","#26828EFF","#31688EFF","#3E4A89FF","#482878FF","#440154FF"])'
+
+
+ColourScal <- 'd3.scaleOrdinal().range(d3.schemeCategory10)'
+# Make the Network
+sankeyNetwork(Links = data_long, Nodes = nodes,
+              Source = "IDsource", Target = "IDtarget",
+              Value = "value", NodeID = "name", 
+              sinksRight=FALSE, colourScale=ColourScal, nodeWidth=40, fontSize=5, nodePadding=2)
+
+
+
+
+
+
+```
+
+
+
+
+```{r Pantrap sankey network - functional_groups}
+
+UniMorpho <- unique(subset_data_K_p$functional_group)#choix de la morphoespèce unique
+uniloc    <- unique(subset_data_K_p$Locality)#cette variable reste a changer en fonction du tableau utilisé
+
+# Create a matrix Locs filled with zeros
+# Locs crée une variable avec toutes les morphoespeces en ligne et les colonnes uniques (en fonction du choix fait)
+Locs <- matrix(0, nrow = length(subset_data_K_p$functional_group), ncol = length(uniloc))
+
+
+#Abu = matrice vide pour info unique de morphoespece et de uniloc(qui varie en fonction de la question)
+Abu_B_P <- matrix(0, nrow = length(UniMorpho), ncol = length(uniloc))              
+rownames(Abu_B_P) <- UniMorpho
+colnames(Abu_B_P) <- uniloc
+
+
+# Loop through each element of uniloc
+for (i in seq_along(uniloc)) {
+  # Set the corresponding column in Locs to 1 where the condition is true, result of the matrix presence/absence
+  Locs[, i] <- subset_data_K_p$Locality == uniloc[i]
+}                                   
+
+# Loop through each element of UniMorpho
+for (i in seq_along(UniMorpho)) {
+  # Create a logical vector Wh1 based on the condition
+  #binary condition (presence 1 abs 0)
+  Wh1 <- subset_data_K_p$functional_group == UniMorpho[i]
+  
+  # Loop through each element of uniloc
+  for (j in seq_along(uniloc)) {
+    # Use which to get indices where the condition is true
+    A <- which(Wh1 * Locs[, j]!=0)
+    
+    # Sum the corresponding Abun_tree values
+    Abui <- sum(subset_data_K_p$Abun_tree[A])
+    
+    # Assign the sum to Locs[i, j],nouvelle matrice avec la somme des toutes les abondances par colonne
+    Abu_B_P[i, j] <- Abui
+  }
+}
+
+
+
+
+
+
+desired_order <- c("Koyli_Alpha", "Widou", "Ranerou")  # Add more items as needed
+
+# Reorder the columns of your data frame to match the desired order
+Abu_B_P <- Abu_B_P[, desired_order]
+
+
+Abu_B_P<-as.data.frame(Abu_B_P)
+
+# I need a long format
+data_long <- Abu_B_P %>%
+  rownames_to_column %>%
+  gather(key = 'key', value = 'value', -rowname) %>%
+  filter(value > 0)
+colnames(data_long) <- c("source", "target", "value")
+data_long$target <- paste(data_long$target, " ", sep="")
+
+
+# From these flows we need to create a node data frame: it lists every entities involved in the flow
+nodes <- data.frame(name=c(as.character(data_long$source), as.character(data_long$target)) %>% unique())
+
+# With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
+data_long$IDsource=match(data_long$source, nodes$name)-1 
+data_long$IDtarget=match(data_long$target, nodes$name)-1
+
+# prepare colour scale
+#ColourScal ='d3.scaleOrdinal() .range(["#FDE725FF","#B4DE2CFF","#6DCD59FF","#35B779FF","#1F9E89FF","#26828EFF","#31688EFF","#3E4A89FF","#482878FF","#440154FF"])'
+
+
+ColourScal <- 'd3.scaleOrdinal().range(d3.schemeCategory10)'
+# Make the Network
+sankeyNetwork(Links = data_long, Nodes = nodes,
+              Source = "IDsource", Target = "IDtarget",
+              Value = "value", NodeID = "name", 
+              sinksRight=FALSE, colourScale=ColourScal, nodeWidth=40, fontSize=5, nodePadding=2)
+
+
+
+
+
+
+```
+# Test per groups
+
+
+```{r Net and pantrap glmm models -net  - loop }
+
+
+# Function to perform analysis for a given superfamily Net
+analyze_superfamily <- function(superfamily) {
+  # Subset the data
+  subset_data <- subset(dfs_lists_VB$Balanites_aegyptiaca,
+                        moment == "jour" & season == "J" &  Methode == "Net" & Superfamily == superfamily)
+  
+  # Aggregate the data
+  abundance_aggregated <- aggregate(Abun_tree ~ id_tree + site + Locality, data = subset_data, sum)
+  
+  # Ensure the 'Locality' factor is ordered
+  desired_order <- c("Koyli_Alpha", "Widou", "Ranerou") 
+  abundance_aggregated$Locality <- factor(abundance_aggregated$Locality, levels = desired_order)
+  
+  # Fit the negative binomial model
+  glmbn <- glm.nb(Abun_tree ~ Locality, data = abundance_aggregated)
+  
+  # Model summary and ANOVA
+  model_summary <- summary(glmbn)
+  model_anova <- Anova(glmbn, type = 3, method = "chisq")
+  
+  # Plot residuals
+  residuals_plot <- plot(simulateResiduals(glmbn))
+  
+  # Post-hoc tests
+  emtb <- emmeans(glmbn, ~ Locality)
+  pairwise_comparisons <- pairs(emtb)
+  
+  # Return results
+  list(
+    summary = model_summary,
+    anova = model_anova,
+    residuals_plot = residuals_plot,
+    emtb = emtb,
+    pairwise_comparisons = pairwise_comparisons
+  )
+}
+
+# List of superfamilies to analyze
+superfamilies <- c("Apoidea") # Add more superfamilies as needed
+
+
+
+# Analyze each superfamily
+results <- lapply(superfamilies, analyze_superfamily)
+results
+
+
+
+# Function to perform analysis for a given superfamily Pantrap
+analyze_superfamilyp <- function(superfamily) {
+  # Subset the data
+  subset_data <- subset(dfs_lists_VB$Balanites_aegyptiaca,
+                        moment == "jour" & season == "J" & Methode == "Pantrap" & Superfamily == superfamily)
+  
+  # Aggregate the data
+  abundance_aggregated <- aggregate(Abun_tree ~ id_tree + site + Locality, data = subset_data, sum)
+  
+  # Ensure the 'Locality' factor is ordered
+  desired_order <- c("Koyli_Alpha", "Widou", "Ranerou") 
+  abundance_aggregated$Locality <- factor(abundance_aggregated$Locality, levels = desired_order)
+  
+  # Fit the negative binomial model
+  glmbn <- glm.nb(Abun_tree ~ Locality, data = abundance_aggregated)
+  
+  # Model summary and ANOVA
+  model_summary <- summary(glmbn)
+  model_anova <- Anova(glmbn, type = 3, method = "chisq")
+  
+  # Plot residuals
+  residuals_plot <- plot(simulateResiduals(glmbn))
+  
+  # Post-hoc tests
+  emtb <- emmeans(glmbn, ~ Locality)
+  pairwise_comparisons <- pairs(emtb)
+  
+  # Return results
+  list(
+    summary = model_summary,
+    anova = model_anova,
+    residuals_plot = residuals_plot,
+    emtb = emtb,
+    pairwise_comparisons = pairwise_comparisons
+  )
+}
+
+# List of superfamilies to analyze
+superfamilies <- c("Apoidea") # Add more superfamilies as needed
+
+
+
+# Analyze each superfamily
+resultsp <- lapply(superfamilies, analyze_superfamilyp)
+resultsp
+
+
+
+
+# Function to perform analysis for a given family both pantrap and net 
+analyze_family <- function(family) {
+  # Subset the data
+  subset_data <- subset(dfs_lists_VB$Balanites_aegyptiaca,
+                        moment == "jour" & season == "J" & Family == family)
+  
+  # Aggregate the data
+  abundance_aggregated <- aggregate(Abun_tree ~ id_tree + site + Locality, data = subset_data, sum)
+  
+  # Ensure the 'Locality' factor is ordered
+  desired_order <- c("Koyli_Alpha", "Widou", "Ranerou") 
+  abundance_aggregated$Locality <- factor(abundance_aggregated$Locality, levels = desired_order)
+  
+  # Fit the negative binomial model
+  glmbn <- glm.nb(Abun_tree ~ Locality, data = abundance_aggregated)
+  
+  # Model summary and ANOVA
+  model_summary <- summary(glmbn)
+  model_anova <- Anova(glmbn, type = 3, method = "chisq")
+  
+  # Plot residuals
+  residuals_plot <- plot(simulateResiduals(glmbn))
+  
+  # Post-hoc tests
+  emtb <- emmeans(glmbn, ~ Locality)
+  pairwise_comparisons <- pairs(emtb)
+  
+  # Return results
+  list(
+    summary = model_summary,
+    anova = model_anova,
+    residuals_plot = residuals_plot,
+    emtb = emtb,
+    pairwise_comparisons = pairwise_comparisons
+  )
+}
+
+# List of families to analyze
+families <- c("Halictidae","Chloropidae") # Add more superfamilies as needed
+
+
+
+# Analyze each family
+resultsfam <- lapply(families, analyze_family)
+resultsfam
+
+
+# Function to perform analysis for a given Order Net
+analyze_order <- function(order) {
+  # Subset the data
+  subset_data <- subset(dfs_lists_VB$Balanites_aegyptiaca,
+                        moment == "jour" & season == "J" & Methode == "Net" & Order == order)
+  
+  # Aggregate the data
+  abundance_aggregated <- aggregate(Abun_tree ~ id_tree + site + Locality, data = subset_data, sum)
+  
+  # Ensure the 'Locality' factor is ordered
+  desired_order <- c("Koyli_Alpha", "Widou", "Ranerou") 
+  abundance_aggregated$Locality <- factor(abundance_aggregated$Locality, levels = desired_order)
+  
+  # Fit the negative binomial model
+  glmbn <- glm.nb(Abun_tree ~ Locality, data = abundance_aggregated)
+  
+  # Model summary and ANOVA
+  model_summary <- summary(glmbn)
+  model_anova <- Anova(glmbn, type = 3, method = "chisq")
+  
+  # Plot residuals
+  residuals_plot <- plot(simulateResiduals(glmbn))
+  
+  # Post-hoc tests
+  emtb <- emmeans(glmbn, ~ Locality)
+  pairwise_comparisons <- pairs(emtb)
+  
+  # Return results
+  list(
+    summary = model_summary,
+    anova = model_anova,
+    residuals_plot = residuals_plot,
+    emtb = emtb,
+    pairwise_comparisons = pairwise_comparisons
+  )
+}
+
+# List of Order to analyze
+orders <- c("Hymenoptera", "Diptera", "Coleoptera", "Hemiptera") # Add more superfamilies as needed
+
+
+
+# Analyze each Order
+results_order <- lapply(orders, analyze_order)
+results_order
+
+
+
+
+
+# Function to perform analysis for a given Order pantrap
+analyze_orderp <- function(order) {
+  # Subset the data
+  subset_data <- subset(dfs_lists_VB$Balanites_aegyptiaca,
+                        moment == "jour" & season == "J" & Methode == "Pantrap" & Order == order)
+  
+  # Aggregate the data
+  abundance_aggregated <- aggregate(Abun_tree ~ id_tree + site + Locality, data = subset_data, sum)
+  
+  # Ensure the 'Locality' factor is ordered
+  desired_order <- c("Koyli_Alpha", "Widou", "Ranerou") 
+  abundance_aggregated$Locality <- factor(abundance_aggregated$Locality, levels = desired_order)
+  
+  # Fit the negative binomial model
+  glmbn <- glm.nb(Abun_tree ~ Locality, data = abundance_aggregated)
+  
+  # Model summary and ANOVA
+  model_summary <- summary(glmbn)
+  model_anova <- Anova(glmbn, type = 3, method = "chisq")
+  
+  # Plot residuals
+  residuals_plot <- plot(simulateResiduals(glmbn))
+  
+  # Post-hoc tests
+  emtb <- emmeans(glmbn, ~ Locality)
+  pairwise_comparisons <- pairs(emtb)
+  
+  # Return results
+  list(
+    summary = model_summary,
+    anova = model_anova,
+    residuals_plot = residuals_plot,
+    emtb = emtb,
+    pairwise_comparisons = pairwise_comparisons
+  )
+}
+
+# List of Order to analyze
+orders <- c("Hymenoptera", "Diptera", "Coleoptera", "Hemiptera") # Add more superfamilies as needed
+
+
+
+# Analyze each Order
+results_orderp <- lapply(orders, analyze_orderp)
+results_orderp
+
+
+
+```
+
+
+
+#CCA in Net sampling
+```{r net cca treatment - by site and Localities}
+#data preparation - subset of the data of interest
+
+subset_data_K_p_netw<- subset(dfs_lists_VB$Balanites_aegyptiaca,
+                              moment == "jour"& season =="J" & Methode == "Net" & Order != "Lepidoptera"&Family != "Formicidae")
+
+#abundance_aggregated_fl<- left_join(data_ind_A,subset_data_K_p_netw,by="id_tree", multiple = "all")
+abundance_aggregated_netw<-aggregate(Abun_tree ~ morphospecies+id_tree+site+Locality+Family+Order+functional_group, data = subset_data_K_p_netw, sum)#this will be modified depending on the specific guild or order studied 
+
+
+
+##with this line change the degree of filtering (by order, functional group or other interesting question that needs to be explore)
+#abundance_aggregated_netw<-abundance_aggregated_netw %>%  filter(Order %in% c("Hymenoptera", "Diptera"))
+
+###Matrix 
+
+UniMorpho <- unique(abundance_aggregated_netw$Family)#choix de la morphoespèce unique
+uniloc    <- unique(abundance_aggregated_netw$id_tree)#cette variable reste a changer en fonction du tableau utilisé
+
+# Create a matrix Locs filled with zeros
+# Locs crée une variable avec toutes les morphoespeces en ligne et les colonnes uniques (en fonction du choix fait)
+Locs <- matrix(0, nrow = length(abundance_aggregated_netw$Family), ncol = length(uniloc))
+
+
+#Abu = matrice vide pour info unique de morphoespece et de uniloc(qui varie en fonction de la question)
+Abu_K_N_fam <- matrix(0, nrow = length(UniMorpho), ncol = length(uniloc))              
+rownames(Abu_K_N_fam) <- UniMorpho
+colnames(Abu_K_N_fam) <- uniloc
+
+
+# Loop through each element of uniloc
+for (i in seq_along(uniloc)) {
+  # Set the corresponding column in Locs to 1 where the condition is true, result of the matrix presence/absence
+  Locs[, i] <- abundance_aggregated_netw$id_tree== uniloc[i]
+}                                   
+
+# Loop through each element of UniMorpho
+for (i in seq_along(UniMorpho)) {
+  # Create a logical vector Wh1 based on the condition
+  #binary condition (presence 1 abs 0)
+  Wh1 <- abundance_aggregated_netw$Family == UniMorpho[i]
+  
+  # Loop through each element of uniloc
+  for (j in seq_along(uniloc)) {
+    # Use which to get indices where the condition is true
+    A <- which(Wh1 * Locs[, j]!=0)
+    
+    # Sum the corresponding Abun_tree values
+    Abui <- sum(abundance_aggregated_netw$Abun_tree[A])
+    
+    # Assign the sum to Locs[i, j],nouvelle matrice avec la somme des toutes les abondances par colonne
+    Abu_K_N_fam[i, j] <- Abui
+  }
+}
+
+transposed_matrix_n_id<-t(Abu_K_N_fam)
+
+
+##preparation dataset for cca
+#for abundance 
+species_data<-transposed_matrix_n_id
+species_data<-as.data.frame(species_data)
+
+# Create a dataframe from the matrix
+my_data_species <- as.data.frame(species_data, row.names = NULL)
+my_data_species$id_tree <- rownames(species_data)
+# Reset row names of the dataframe
+rownames(my_data_species) <- NULL
+
+#for presence /absence 
+species_presence_absence <- ifelse(species_data > 0, 1, 0)
+#Create a dataframe from the matrix
+my_data_species <- as.data.frame(species_presence_absence, row.names = NULL)
+my_data_species$id_tree <- rownames(species_presence_absence)
+# Reset row names of the dataframe
+rownames(my_data_species) <- NULL
+
+
+
+#preparing environmental data
+subset_data_cca <- unique(abundance_aggregated_netw[, c("id_tree","site", "Locality")])
+rownames(subset_data_cca) <- subset_data_cca$id_tree
+subset_data_cca$id_tree <- NULL
+
+
+#cca model and test assumptions
+
+env_data<-subset_data_cca
+desired_order<-c("Koyli_Alpha","Widou","Ranerou")
+env_data$Locality <- factor(env_data$Locality, levels = desired_order)
+
+```
+
+
+
+```{r net cca models - by site and Localities}
+
+#presence/absence cca
+cca_result <- cca(species_presence_absence, env_data)
+cca_result2<-cca(species_presence_absence~Locality + Condition(site), data= env_data)
+cca_result3<-cca(species_presence_absence~site+ Condition(Locality), data= env_data)
+
+
+
+anova(cca_result, permutations = 199)
+anova(cca_result2, permutations = 199)
+anova(cca_result3, permutations = 199)
+
+
+summary(cca_result2)
+summary(cca_result3)
+
+#abundance cca
+cca_model<-cca(species_data, env_data)
+cca_model2<-cca(species_data~Locality + Condition(site), data= env_data)
+cca_model3<-cca(species_data~site + Condition(Locality), data= env_data)
+
+
+anova(cca_model, permutations = 199)
+anova(cca_model2, permutations = 199)
+anova(cca_model3, permutations = 199)
+
+anova (cca_model2, by = "mar", permutations = 199)
+anova (cca_model3, by = "ter", permutations = 199)
+anova (cca_model3, by = "axis", permutations = 199)
+
+
+
+
+###cca plot with ggplot
+plot(cca_result3)
+plot(cca_result)
+plot(cca_model3)
+plot(cca_model2)
+
+summary(cca_model3)
+summary(cca_model2)
+
+
+#plot for cca_model2
+
+# Extract site and species scores
+site_scores <- scores(cca_model2, display = "sites")
+site_scores_df <- as.data.frame(site_scores)
+site_scores_df$site <- env_data$site
+site_scores_df$Locality <- env_data$Locality
+
+# Convert scores to data frames
+species_scores <- scores(cca_model2, display = "species")
+species_scores_df <- as.data.frame(species_scores)
+species_scores_df$species <- rownames(species_scores_df)
+
+# Add site and Locality information to site_scores_df
+
+
+# Define a color vector for sites using a palette
+site_col_vector <- RColorBrewer::brewer.pal(n = 3, name = "Set1")
+names(site_col_vector) <- c("Koyli_Alpha","Widou","Ranerou")
+
+# Define a color vector for sites using a palette
+#site_col_vector <- RColorBrewer::brewer.pal(n = 3, name = "Dark2") 
+#names(site_col_vector) <- c("Depression","Unrestored","Restored")
+
+
+# Create the ggplot
+p1 <- ggplot() +
+  geom_point(data = site_scores_df, aes(x = CCA1, y = CCA2, color = Locality, fill =Locality), shape = 21, size = 3) +
+  theme_minimal() +
+  labs(title = "CCA Plot", x = "CCA1", y = "CCA2") +
+  stat_ellipse(data = site_scores_df, aes(x = CCA1, y = CCA2, group = Locality), color = "black", size = 0.8)+
+  geom_text_repel(data = species_scores_df, aes(x = CCA1, y = CCA2, label = species), color = "black", size = 3,  max.overlaps = Inf)
+
+# Print the plot
+p1
+
+#plot for cca_model3
+
+# Assuming your CCA model is named cca_model2
+# Extract scores for sites and species
+site_scores <- scores(cca_model3, display = "sites")
+# Convert to data frames for ggplot2
+site_scores_df <- as.data.frame(site_scores)
+site_scores_df$site <- env_data$site
+site_scores_df$Locality <- env_data$Locality
+
+
+species_scores <- scores(cca_model3, display = "species")
+species_scores_df <- as.data.frame(species_scores)
+species_scores_df$species <- rownames(species_scores_df)
+
+# Define a color vector for sites using a palette
+site_col_vector <- RColorBrewer::brewer.pal(n = 3, name = "Dark2") 
+names(site_col_vector) <- c("Depression","Unrestored","Restored")
+
+
+# Create the ggplot
+p2<- ggplot() +
+  geom_point(data = site_scores_df, aes(x = CCA1, y = CCA2, color = site, fill = site), shape = 21, size = 3) +
+  scale_color_manual(values = site_col_vector) +
+  scale_fill_manual(values = site_col_vector) +
+  theme_minimal() +
+  labs(title = "CCA Plot", x = "CCA1", y = "CCA2") +
+  stat_ellipse(data = site_scores_df, aes(x = CCA1, y = CCA2, group = site), color = "black", size = 0.8) +
+  geom_text_repel(data = species_scores_df, aes(x = CCA1, y = CCA2, label = species), color = "black", size = 3,  max.overlaps = Inf)
+p2
+
+
+#cca_result2
+
+
+# Extract site and species scores
+site_scores <- scores(cca_result2, display = "sites")
+site_scores_df <- as.data.frame(site_scores)
+site_scores_df$site <- env_data$site
+site_scores_df$Locality <- env_data$Locality
+
+# Convert scores to data frames
+species_scores <- scores(cca_result2, display = "species")
+species_scores_df <- as.data.frame(species_scores)
+species_scores_df$species <- rownames(species_scores_df)
+
+# Add site and Locality information to site_scores_df
+
+
+# Define a color vector for sites using a palette
+site_col_vector <- RColorBrewer::brewer.pal(n = 3, name = "Set1")
+names(site_col_vector) <-c("Koyli_Alpha","Widou","Ranerou")
+
+# Define a color vector for sites using a palette
+#site_col_vector <- RColorBrewer::brewer.pal(n = 3, name = "Dark2") 
+#names(site_col_vector) <- c("Depression","Unrestored","Restored")
+
+
+# Create the ggplot
+r1 <- ggplot() +
+  geom_point(data = site_scores_df, aes(x = CCA1, y = CCA2, color = Locality, fill = Locality), shape = 21, size = 3) +
+  theme_minimal() +
+  labs(title = "CCA Plot", x = "CCA1", y = "CCA2") +
+  stat_ellipse(data = site_scores_df, aes(x = CCA1, y = CCA2, group = Locality), color = "black", size = 0.8)+
+  geom_text_repel(data = species_scores_df, aes(x = CCA1, y = CCA2, label = species), color = "black", size = 3,  max.overlaps = Inf)
+
+# Print the plot
+r1
+
+
+#cca_result3
+# Assuming your CCA model is named cca_model2
+# Extract scores for sites and species
+site_scores <- scores(cca_result3, display = "sites")
+# Convert to data frames for ggplot2
+site_scores_df <- as.data.frame(site_scores)
+site_scores_df$site <- env_data$site
+site_scores_df$Locality <- env_data$Locality
+
+
+species_scores <- scores(cca_result3, display = "species")
+species_scores_df <- as.data.frame(species_scores)
+species_scores_df$species <- rownames(species_scores_df)
+
+# Define a color vector for sites using a palette
+site_col_vector <- RColorBrewer::brewer.pal(n = 3, name = "Dark2") 
+names(site_col_vector) <- c("Depression","Unrestored","Restored")
+
+
+# Create the ggplot
+r2<- ggplot() +
+  geom_point(data = site_scores_df, aes(x = CCA1, y = CCA2, color = site, fill = site), shape = 21, size = 3) +
+  scale_color_manual(values = site_col_vector) +
+  scale_fill_manual(values = site_col_vector) +
+  theme_minimal() +
+  labs(title = "CCA Plot", x = "CCA1", y = "CCA2") +
+  stat_ellipse(data = site_scores_df, aes(x = CCA1, y = CCA2, group = site), color = "black", size = 0.8) +
+  geom_text_repel(data = species_scores_df, aes(x = CCA1, y = CCA2, label = species), color = "black", size = 3,  max.overlaps = Inf)
+r2
+
+
+
+
+```
+
+
+```{r net cca treatment - by site and Localities with Formicoidea}
+#data preparation - subset of the data of interest
+
+subset_data_K_p_netw<- subset(dfs_lists_VB$Balanites_aegyptiaca,
+                              moment == "jour"& season =="J" & Methode == "Net" & Order != "Lepidoptera")
+
+#abundance_aggregated_fl<- left_join(data_ind_A,subset_data_K_p_netw,by="id_tree", multiple = "all")
+abundance_aggregated_netw<-aggregate(Abun_tree ~ morphospecies+id_tree+site+Locality+Family+Order+functional_group, data = subset_data_K_p_netw, sum)#this will be modified depending on the specific guild or order studied 
+
+
+
+##with this line change the degree of filtering (by order, functional group or other interesting question that needs to be explore)
+#abundance_aggregated_netw<-abundance_aggregated_netw %>%  filter(Order %in% c("Hymenoptera", "Diptera"))
+
+###Matrix 
+
+UniMorpho <- unique(abundance_aggregated_netw$Family)#choix de la morphoespèce unique
+uniloc    <- unique(abundance_aggregated_netw$id_tree)#cette variable reste a changer en fonction du tableau utilisé
+
+# Create a matrix Locs filled with zeros
+# Locs crée une variable avec toutes les morphoespeces en ligne et les colonnes uniques (en fonction du choix fait)
+Locs <- matrix(0, nrow = length(abundance_aggregated_netw$Family), ncol = length(uniloc))
+
+
+#Abu = matrice vide pour info unique de morphoespece et de uniloc(qui varie en fonction de la question)
+Abu_K_N_fam <- matrix(0, nrow = length(UniMorpho), ncol = length(uniloc))              
+rownames(Abu_K_N_fam) <- UniMorpho
+colnames(Abu_K_N_fam) <- uniloc
+
+
+# Loop through each element of uniloc
+for (i in seq_along(uniloc)) {
+  # Set the corresponding column in Locs to 1 where the condition is true, result of the matrix presence/absence
+  Locs[, i] <- abundance_aggregated_netw$id_tree== uniloc[i]
+}                                   
+
+# Loop through each element of UniMorpho
+for (i in seq_along(UniMorpho)) {
+  # Create a logical vector Wh1 based on the condition
+  #binary condition (presence 1 abs 0)
+  Wh1 <- abundance_aggregated_netw$Family == UniMorpho[i]
+  
+  # Loop through each element of uniloc
+  for (j in seq_along(uniloc)) {
+    # Use which to get indices where the condition is true
+    A <- which(Wh1 * Locs[, j]!=0)
+    
+    # Sum the corresponding Abun_tree values
+    Abui <- sum(abundance_aggregated_netw$Abun_tree[A])
+    
+    # Assign the sum to Locs[i, j],nouvelle matrice avec la somme des toutes les abondances par colonne
+    Abu_K_N_fam[i, j] <- Abui
+  }
+}
+
+transposed_matrix_n_id<-t(Abu_K_N_fam)
+
+
+##preparation dataset for cca
+#for abundance 
+species_data<-transposed_matrix_n_id
+species_data<-as.data.frame(species_data)
+
+# Create a dataframe from the matrix
+my_data_species <- as.data.frame(species_data, row.names = NULL)
+my_data_species$id_tree <- rownames(species_data)
+# Reset row names of the dataframe
+rownames(my_data_species) <- NULL
+
+#for presence /absence 
+species_presence_absence <- ifelse(species_data > 0, 1, 0)
+#Create a dataframe from the matrix
+my_data_species <- as.data.frame(species_presence_absence, row.names = NULL)
+my_data_species$id_tree <- rownames(species_presence_absence)
+# Reset row names of the dataframe
+rownames(my_data_species) <- NULL
+
+
+
+#preparing environmental data
+subset_data_cca <- unique(abundance_aggregated_netw[, c("id_tree","site", "Locality")])
+rownames(subset_data_cca) <- subset_data_cca$id_tree
+subset_data_cca$id_tree <- NULL
+
+
+#cca model and test assumptions
+
+env_data<-subset_data_cca
+desired_order<-c("Koyli_Alpha","Widou","Ranerou")
+env_data$Locality <- factor(env_data$Locality, levels = desired_order)
+
+```
+
+
+#CCA in pantrap sampling
+```{r pantrap cca treatment - by site and Localities}
+#data preparation - subset of the data of interest
+
+subset_data_K_p_netw<- subset(dfs_lists_VB$Balanites_aegyptiaca,
+                              moment == "jour"& season =="J" & Methode == "Pantrap" & Order != "Lepidoptera"&Family != "Formicidae")
+
+#abundance_aggregated_fl<- left_join(data_ind_K,subset_data_K_n,by="id_tree", multiple = "all")
+abundance_aggregated_netw<-aggregate(Abun_tree ~ morphospecies+id_tree+site+Locality+Family+Order+functional_group, data = subset_data_K_p_netw, sum)#this will be modified depending on the specific guild or order studied 
+
+
+
+##with this line change the degree of filtering (by order, functional group or other interesting question that needs to be explore)
+#abundance_aggregated_netw<-abundance_aggregated_netw %>%  filter(Order %in% c("Hymenoptera", "Diptera"))
+
+###Matrix 
+
+UniMorpho <- unique(abundance_aggregated_netw$Family)#choix de la morphoespèce unique
+uniloc    <- unique(abundance_aggregated_netw$id_tree)#cette variable reste a changer en fonction du tableau utilisé
+
+# Create a matrix Locs filled with zeros
+# Locs crée une variable avec toutes les morphoespeces en ligne et les colonnes uniques (en fonction du choix fait)
+Locs <- matrix(0, nrow = length(abundance_aggregated_netw$Family), ncol = length(uniloc))
+
+
+#Abu = matrice vide pour info unique de morphoespece et de uniloc(qui varie en fonction de la question)
+Abu_K_N_fam <- matrix(0, nrow = length(UniMorpho), ncol = length(uniloc))              
+rownames(Abu_K_N_fam) <- UniMorpho
+colnames(Abu_K_N_fam) <- uniloc
+
+
+# Loop through each element of uniloc
+for (i in seq_along(uniloc)) {
+  # Set the corresponding column in Locs to 1 where the condition is true, result of the matrix presence/absence
+  Locs[, i] <- abundance_aggregated_netw$id_tree== uniloc[i]
+}                                   
+
+# Loop through each element of UniMorpho
+for (i in seq_along(UniMorpho)) {
+  # Create a logical vector Wh1 based on the condition
+  #binary condition (presence 1 abs 0)
+  Wh1 <- abundance_aggregated_netw$Family == UniMorpho[i]
+  
+  # Loop through each element of uniloc
+  for (j in seq_along(uniloc)) {
+    # Use which to get indices where the condition is true
+    A <- which(Wh1 * Locs[, j]!=0)
+    
+    # Sum the corresponding Abun_tree values
+    Abui <- sum(abundance_aggregated_netw$Abun_tree[A])
+    
+    # Assign the sum to Locs[i, j],nouvelle matrice avec la somme des toutes les abondances par colonne
+    Abu_K_N_fam[i, j] <- Abui
+  }
+}
+Abu_K_N_fam
+transposed_matrix_n_id<-t(Abu_K_N_fam)
+
+
+##preparation dataset for cca
+#for abundance 
+species_data<-transposed_matrix_n_id
+as.data.frame(species_data)
+
+# Create a dataframe from the matrix
+my_data_species <- as.data.frame(species_data, row.names = NULL)
+my_data_species$id_tree <- rownames(species_data)
+# Reset row names of the dataframe
+rownames(my_data_species) <- NULL
+
+#for presence /absence 
+species_presence_absence <- ifelse(species_data > 0, 1, 0)
+#Create a dataframe from the matrix
+my_data_species <- as.data.frame(species_presence_absence, row.names = NULL)
+my_data_species$id_tree <- rownames(species_presence_absence)
+# Reset row names of the dataframe
+rownames(my_data_species) <- NULL
+
+
+
+#preparing environmental data
+subset_data_cca <- unique(abundance_aggregated_netw[, c("id_tree","site", "Locality")])
+rownames(subset_data_cca) <- subset_data_cca$id_tree
+subset_data_cca$id_tree <- NULL
+
+
+#cca model and test assumptions
+
+env_data<-subset_data_cca
+desired_order<-c("Koyli_Alpha","Widou","Ranerou")
+env_data$Locality <- factor(env_data$Locality, levels = desired_order)
+
+```
+
+
+
+
+
+
+```{r pantrap cca models - by site and Localities}
+
+#presence/absence cca
+cca_result <- cca(species_presence_absence, env_data)
+cca_result2<-cca(species_presence_absence~Locality + Condition(site), data= env_data)
+cca_result3<-cca(species_presence_absence~site + Condition(Locality), data= env_data)
+
+
+
+anova(cca_result, permutations = 199)
+anova(cca_result2, permutations = 199)
+anova(cca_result3, permutations = 199)
+
+
+summary(cca_result2)
+summary(cca_result3)
+
+#abundance cca
+cca_model<-cca(species_data, env_data)
+cca_model2<-cca(species_data~Locality + Condition(site), data= env_data)
+cca_model3<-cca(species_data~site + Condition(Locality), data= env_data)
+
+
+anova(cca_model, permutations = 199)
+anova(cca_model2, permutations = 199)
+anova(cca_model3, permutations = 199)
+
+anova (cca_model2, by = "mar", permutations = 199)
+anova (cca_model3, by = "ter", permutations = 199)
+anova (cca_model3, by = "axis", permutations = 199)
+
+
+
+
+###cca plot with ggplot
+plot(cca_model3)
+plot(cca_model2)
+
+summary(cca_model3)
+summary(cca_model2)
+
+
+#plot for cca_model2
+
+# Extract site and species scores
+site_scores <- scores(cca_model2, display = "sites")
+site_scores_df <- as.data.frame(site_scores)
+site_scores_df$site <- env_data$site
+site_scores_df$Locality <- env_data$Locality
+
+# Convert scores to data frames
+species_scores <- scores(cca_model2, display = "species")
+species_scores_df <- as.data.frame(species_scores)
+species_scores_df$species <- rownames(species_scores_df)
+
+# Add site and Locality information to site_scores_df
+
+
+# Define a color vector for sites using a palette
+site_col_vector <- RColorBrewer::brewer.pal(n = 3, name = "Set1")
+names(site_col_vector) <- c("Koyli_Alpha","Widou","Ranerou")
+
+# Define a color vector for sites using a palette
+#site_col_vector <- RColorBrewer::brewer.pal(n = 3, name = "Dark2") 
+#names(site_col_vector) <- c("Depression","Unrestored","Restored")
+
+
+# Create the ggplot
+p1 <- ggplot() +
+  geom_point(data = site_scores_df, aes(x = CCA1, y = CCA2, color = Locality, fill =Locality), shape = 21, size = 3) +
+  theme_minimal() +
+  labs(title = "CCA Plot", x = "CCA1", y = "CCA2") +
+  stat_ellipse(data = site_scores_df, aes(x = CCA1, y = CCA2, group = Locality), color = "black", size = 0.8)+
+  geom_text_repel(data = species_scores_df, aes(x = CCA1, y = CCA2, label = species), color = "black", size = 3,  max.overlaps = Inf)
+
+# Print the plot
+p1
+
+#plot for cca_model3
+
+# Assuming your CCA model is named cca_model2
+# Extract scores for sites and species
+site_scores <- scores(cca_model3, display = "sites")
+# Convert to data frames for ggplot2
+site_scores_df <- as.data.frame(site_scores)
+site_scores_df$site <- env_data$site
+site_scores_df$Locality <- env_data$Locality
+
+
+species_scores <- scores(cca_model3, display = "species")
+species_scores_df <- as.data.frame(species_scores)
+species_scores_df$species <- rownames(species_scores_df)
+
+# Define a color vector for sites using a palette
+site_col_vector <- RColorBrewer::brewer.pal(n = 3, name = "Dark2") 
+names(site_col_vector) <- c("Depression","Unrestored","Restored")
+
+
+# Create the ggplot
+p2<- ggplot() +
+  geom_point(data = site_scores_df, aes(x = CCA1, y = CCA2, color = site, fill = site), shape = 21, size = 3) +
+  scale_color_manual(values = site_col_vector) +
+  scale_fill_manual(values = site_col_vector) +
+  theme_minimal() +
+  labs(title = "CCA Plot", x = "CCA1", y = "CCA2") +
+  stat_ellipse(data = site_scores_df, aes(x = CCA1, y = CCA2, group = site), color = "black", size = 0.8) +
+  geom_text_repel(data = species_scores_df, aes(x = CCA1, y = CCA2, label = species), color = "black", size = 3,  max.overlaps = Inf)
+p2
+
+
+#cca_result2
+
+
+# Extract site and species scores
+site_scores <- scores(cca_result2, display = "sites")
+site_scores_df <- as.data.frame(site_scores)
+site_scores_df$site <- env_data$site
+site_scores_df$Locality <- env_data$Locality
+
+# Convert scores to data frames
+species_scores <- scores(cca_result2, display = "species")
+species_scores_df <- as.data.frame(species_scores)
+species_scores_df$species <- rownames(species_scores_df)
+
+# Add site and Locality information to site_scores_df
+
+
+# Define a color vector for sites using a palette
+site_col_vector <- RColorBrewer::brewer.pal(n = 3, name = "Set1")
+names(site_col_vector) <-c("Koyli_Alpha","Widou","Ranerou")
+
+# Define a color vector for sites using a palette
+#site_col_vector <- RColorBrewer::brewer.pal(n = 3, name = "Dark2") 
+#names(site_col_vector) <- c("Depression","Unrestored","Restored")
+
+
+# Create the ggplot
+r1 <- ggplot() +
+  geom_point(data = site_scores_df, aes(x = CCA1, y = CCA2, color = Locality, fill = Locality), shape = 21, size = 3) +
+  theme_minimal() +
+  labs(title = "CCA Plot", x = "CCA1", y = "CCA2") +
+  stat_ellipse(data = site_scores_df, aes(x = CCA1, y = CCA2, group = Locality), color = "black", size = 0.8)+
+  geom_text_repel(data = species_scores_df, aes(x = CCA1, y = CCA2, label = species), color = "black", size = 3,  max.overlaps = Inf)
+
+# Print the plot
+r1
+
+
+#cca_result3
+# Assuming your CCA model is named cca_model2
+# Extract scores for sites and species
+site_scores <- scores(cca_result3, display = "sites")
+# Convert to data frames for ggplot2
+site_scores_df <- as.data.frame(site_scores)
+site_scores_df$site <- env_data$site
+site_scores_df$Locality <- env_data$Locality
+
+
+species_scores <- scores(cca_result3, display = "species")
+species_scores_df <- as.data.frame(species_scores)
+species_scores_df$species <- rownames(species_scores_df)
+
+# Define a color vector for sites using a palette
+site_col_vector <- RColorBrewer::brewer.pal(n = 3, name = "Dark2") 
+names(site_col_vector) <- c("Depression","Unrestored","Restored")
+
+
+# Create the ggplot
+r2<- ggplot() +
+  geom_point(data = site_scores_df, aes(x = CCA1, y = CCA2, color = site, fill = site), shape = 21, size = 3) +
+  scale_color_manual(values = site_col_vector) +
+  scale_fill_manual(values = site_col_vector) +
+  theme_minimal() +
+  labs(title = "CCA Plot", x = "CCA1", y = "CCA2") +
+  stat_ellipse(data = site_scores_df, aes(x = CCA1, y = CCA2, group = site), color = "black", size = 0.8) +
+  geom_text_repel(data = species_scores_df, aes(x = CCA1, y = CCA2, label = species), color = "black", size = 3,  max.overlaps = Inf)
+r2
+
+
+
+
+```
+# Bees Networks
+
+```{r bees networks Koyli}
+
+subset_data_K_n <- subset(dfs_lists_VB$Balanites_aegyptiaca,
+                        moment == "jour"& season == "J")
+
+abundance_aggregated_n<-aggregate(Abun_tree ~ morphospecies+id_tree+site+Locality+Order+functional_group+Family, data = subset_data_K_n, sum)
+
+
+#In order to change the level of filtering don't forget to modify here the selection_ 
+abundance_aggregated_n<-abundance_aggregated_n%>%filter(Order %in% c("Hymenoptera", "Diptera"
+  ))%>%filter(Locality %in% ("Koyli_Alpha") )%>%filter(functional_group %in% ("pollinator_hymenoptera") )
+###Matrix per treatment
+
+UniMorpho <- unique(abundance_aggregated_n$morphospecies)#choix de la morphoespèce unique
+uniloc    <- unique(abundance_aggregated_n$site)#cette variable reste a changer en fonction du tableau utilisé
+
+# Create a matrix Locs filled with zeros
+# Locs crée une variable avec toutes les morphoespeces en ligne et les colonnes uniques (en fonction du choix fait)
+Locs <- matrix(0, nrow = length(abundance_aggregated_n$morphospecies), ncol = length(uniloc))
+
+
+#Abu = matrice vide pour info unique de morphoespece et de uniloc(qui varie en fonction de la question)
+Abu_K_nt<- matrix(0, nrow = length(UniMorpho), ncol = length(uniloc))              
+rownames(Abu_K_nt) <- UniMorpho
+colnames(Abu_K_nt) <- uniloc
+
+
+# Loop through each element of uniloc
+for (i in seq_along(uniloc)) {
+  # Set the corresponding column in Locs to 1 where the condition is true, result of the matrix presence/absence
+  Locs[, i] <- abundance_aggregated_n$site == uniloc[i]
+}                                   
+
+# Loop through each element of UniMorpho
+for (i in seq_along(UniMorpho)) {
+  # Create a logical vector Wh1 based on the condition
+  #binary condition (presence 1 abs 0)
+  Wh1 <- abundance_aggregated_n$morphospecies == UniMorpho[i]
+  
+  # Loop through each element of uniloc
+  for (j in seq_along(uniloc)) {
+    # Use which to get indices where the condition is true
+    A <- which(Wh1 * Locs[, j]!=0)
+    
+    # Sum the corresponding Abun_tree values
+    Abui <- sum(abundance_aggregated_n$Abun_tree[A])
+    
+    # Assign the sum to Locs[i, j],nouvelle matrice avec la somme des toutes les abondances par colonne
+    Abu_K_nt[i, j] <- Abui
+  }
+}
+
+```
+
+```{r bees network treatment - with sankey Koyli}
+# Reorder the columns of your data frame to match the desired order
+
+
+Abu_K_nt<-as.data.frame(Abu_K_nt)
+
+# I need a long format
+data_long <- Abu_K_nt %>%
+  rownames_to_column %>%
+  gather(key = 'key', value = 'value', -rowname) %>%
+  filter(value > 0)
+colnames(data_long) <- c("source", "target", "value")
+data_long$target <- paste(data_long$target, " ", sep="")
+
+
+# From these flows we need to create a node data frame: it lists every entities involved in the flow
+nodes <- data.frame(name=c(as.character(data_long$source), as.character(data_long$target)) %>% unique())
+
+# With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
+data_long$IDsource=match(data_long$source, nodes$name)-1 
+data_long$IDtarget=match(data_long$target, nodes$name)-1
+
+my_color <- 'd3.scaleOrdinal().range(["grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", 
+"grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey",
+"grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey",
+"grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey",
+"grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey",
+"grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey",
+"grey","grey","grey","grey","grey","grey","grey","grey","#26A69A","#FF5722","#CDDC39"])'
+# Make the Network
+sn<-sankeyNetwork(Links = data_long, Nodes = nodes,
+              Source = "IDsource", Target = "IDtarget",
+              Value = "value", NodeID = "name", 
+              sinksRight=FALSE, colourScale=my_color, nodeWidth=5, fontSize=15, nodePadding=2)
+
+
+sn
+
+# you save it as an html
+saveNetwork(sn, "sn_Koyliallbees.html")
+
+# you convert it as png
+webshot("sn_Koyliallbees.html","sn_Kallbees.png", vwidth = 1500, vheight = 1100)
+
+#data_long <- data_long %>% arrange(desc(value))
+
+
+```
+
+```{r bees networks widou}
+
+subset_data_A_all <- subset(dfs_lists_VB$Balanites_aegyptiaca,
+                        moment == "jour"& season == "J")
+
+abundance_aggregated_n<-aggregate(Abun_tree ~ morphospecies+id_tree+site+Locality+Order+functional_group+Family, data = subset_data_K_n, sum)
+
+
+#In order to change the level of filtering don't forget to modify here the selection_ 
+abundance_aggregated_n<-abundance_aggregated_n%>%filter(Order %in% c("Hymenoptera", "Diptera"
+  ))%>%filter(Locality %in% ("Widou") )%>%filter(functional_group %in% ("pollinator_hymenoptera") )
+###Matrix per treatment
+
+
+###Matrix per treatment
+
+UniMorpho <- unique(abundance_aggregated_n$morphospecies)#choix de la morphoespèce unique
+uniloc    <- unique(abundance_aggregated_n$site)#cette variable reste a changer en fonction du tableau utilisé
+
+# Create a matrix Locs filled with zeros
+# Locs crée une variable avec toutes les morphoespeces en ligne et les colonnes uniques (en fonction du choix fait)
+Locs <- matrix(0, nrow = length(abundance_aggregated_n$morphospecies), ncol = length(uniloc))
+
+
+#Abu = matrice vide pour info unique de morphoespece et de uniloc(qui varie en fonction de la question)
+Abu_K_nt<- matrix(0, nrow = length(UniMorpho), ncol = length(uniloc))              
+rownames(Abu_K_nt) <- UniMorpho
+colnames(Abu_K_nt) <- uniloc
+
+
+# Loop through each element of uniloc
+for (i in seq_along(uniloc)) {
+  # Set the corresponding column in Locs to 1 where the condition is true, result of the matrix presence/absence
+  Locs[, i] <- abundance_aggregated_n$site == uniloc[i]
+}                                   
+
+# Loop through each element of UniMorpho
+for (i in seq_along(UniMorpho)) {
+  # Create a logical vector Wh1 based on the condition
+  #binary condition (presence 1 abs 0)
+  Wh1 <- abundance_aggregated_n$morphospecies == UniMorpho[i]
+  
+  # Loop through each element of uniloc
+  for (j in seq_along(uniloc)) {
+    # Use which to get indices where the condition is true
+    A <- which(Wh1 * Locs[, j]!=0)
+    
+    # Sum the corresponding Abun_tree values
+    Abui <- sum(abundance_aggregated_n$Abun_tree[A])
+    
+    # Assign the sum to Locs[i, j],nouvelle matrice avec la somme des toutes les abondances par colonne
+    Abu_K_nt[i, j] <- Abui
+  }
+}
+
+```
+
+```{r bees network treatment - with sankey widou}
+# Reorder the columns of your data frame to match the desired order
+
+
+Abu_K_nt<-as.data.frame(Abu_K_nt)
+
+# I need a long format
+data_long <- Abu_K_nt %>%
+  rownames_to_column %>%
+  gather(key = 'key', value = 'value', -rowname) %>%
+  filter(value > 0)
+colnames(data_long) <- c("source", "target", "value")
+data_long$target <- paste(data_long$target, " ", sep="")
+
+
+# From these flows we need to create a node data frame: it lists every entities involved in the flow
+nodes <- data.frame(name=c(as.character(data_long$source), as.character(data_long$target)) %>% unique())
+
+# With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
+data_long$IDsource=match(data_long$source, nodes$name)-1 
+data_long$IDtarget=match(data_long$target, nodes$name)-1
+
+my_color <- 'd3.scaleOrdinal().range(["grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", 
+"grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey",
+"grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey",
+"grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey",
+"grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey",
+"grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey",
+"grey","grey","grey","grey","grey","grey","grey","grey","#26A69A","#FF5722","#CDDC39"])'
+# Make the Network
+sn<-sankeyNetwork(Links = data_long, Nodes = nodes,
+              Source = "IDsource", Target = "IDtarget",
+              Value = "value", NodeID = "name", 
+              sinksRight=FALSE, colourScale=my_color, nodeWidth=5, fontSize=15, nodePadding=2)
+
+
+sn
+
+# you save it as an html
+saveNetwork(sn, "sn_Wallbees.html")
+
+# you convert it as png
+webshot("sn_Wallbees.html","sn_Wallbees.png", vwidth = 1500, vheight = 1100)
+
+#data_long <- data_long %>% arrange(desc(value))
+
+
+```
+
+```{r bees networks ranerou}
+
+subset_data_A_all <- subset(dfs_lists_VB$Balanites_aegyptiaca,
+                        moment == "jour"& season == "J")
+
+abundance_aggregated_n<-aggregate(Abun_tree ~ morphospecies+id_tree+site+Locality+Order+functional_group+Family, data = subset_data_K_n, sum)
+#In order to change the level of filtering don't forget to modify here the selection_ 
+abundance_aggregated_n<-abundance_aggregated_n%>%filter(Order %in% c("Hymenoptera", "Diptera"
+  ))%>%filter(Locality %in% ("Ranerou") )%>%filter(functional_group %in% ("pollinator_hymenoptera") )
+###Matrix per treatment
+
+UniMorpho <- unique(abundance_aggregated_n$morphospecies)#choix de la morphoespèce unique
+uniloc    <- unique(abundance_aggregated_n$site)#cette variable reste a changer en fonction du tableau utilisé
+
+# Create a matrix Locs filled with zeros
+# Locs crée une variable avec toutes les morphoespeces en ligne et les colonnes uniques (en fonction du choix fait)
+Locs <- matrix(0, nrow = length(abundance_aggregated_n$morphospecies), ncol = length(uniloc))
+
+
+#Abu = matrice vide pour info unique de morphoespece et de uniloc(qui varie en fonction de la question)
+Abu_K_nt<- matrix(0, nrow = length(UniMorpho), ncol = length(uniloc))              
+rownames(Abu_K_nt) <- UniMorpho
+colnames(Abu_K_nt) <- uniloc
+
+
+# Loop through each element of uniloc
+for (i in seq_along(uniloc)) {
+  # Set the corresponding column in Locs to 1 where the condition is true, result of the matrix presence/absence
+  Locs[, i] <- abundance_aggregated_n$site == uniloc[i]
+}                                   
+
+# Loop through each element of UniMorpho
+for (i in seq_along(UniMorpho)) {
+  # Create a logical vector Wh1 based on the condition
+  #binary condition (presence 1 abs 0)
+  Wh1 <- abundance_aggregated_n$morphospecies == UniMorpho[i]
+  
+  # Loop through each element of uniloc
+  for (j in seq_along(uniloc)) {
+    # Use which to get indices where the condition is true
+    A <- which(Wh1 * Locs[, j]!=0)
+    
+    # Sum the corresponding Abun_tree values
+    Abui <- sum(abundance_aggregated_n$Abun_tree[A])
+    
+    # Assign the sum to Locs[i, j],nouvelle matrice avec la somme des toutes les abondances par colonne
+    Abu_K_nt[i, j] <- Abui
+  }
+}
+
+```
+
+```{r bees network treatment - with sankey Ranerou}
+# Reorder the columns of your data frame to match the desired order
+
+
+Abu_K_nt<-as.data.frame(Abu_K_nt)
+
+# I need a long format
+data_long <- Abu_K_nt %>%
+  rownames_to_column %>%
+  gather(key = 'key', value = 'value', -rowname) %>%
+  filter(value > 0)
+colnames(data_long) <- c("source", "target", "value")
+data_long$target <- paste(data_long$target, " ", sep="")
+
+
+# From these flows we need to create a node data frame: it lists every entities involved in the flow
+nodes <- data.frame(name=c(as.character(data_long$source), as.character(data_long$target)) %>% unique())
+
+# With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
+data_long$IDsource=match(data_long$source, nodes$name)-1 
+data_long$IDtarget=match(data_long$target, nodes$name)-1
+
+my_color <- 'd3.scaleOrdinal().range(["grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", 
+"grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey",
+"grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey",
+"grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey",
+"grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey",
+"grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey",
+"grey","grey","grey","grey","grey","grey","grey","grey","#26A69A","#FF5722","#CDDC39"])'
+# Make the Network
+sn<-sankeyNetwork(Links = data_long, Nodes = nodes,
+              Source = "IDsource", Target = "IDtarget",
+              Value = "value", NodeID = "name", 
+              sinksRight=FALSE, colourScale=my_color, nodeWidth=5, fontSize=15, nodePadding=3)
+
+
+sn
+
+# you save it as an html
+saveNetwork(sn, "sn_Rallbees.html")
+
+# you convert it as png
+webshot("sn_Rallbees.html","sn_Rallbees.png", vwidth = 1500, vheight = 1100)
+
+#data_long <- data_long %>% arrange(desc(value))
+
+
+```
+
+
+
+
+```{r test for formicidae, chloropidae and halictidae}
+# Function to perform analysis for a given family both pantrap and net 
+analyze_family <- function(family) {
+  # Subset the data, exclusion of formic.3, crematogaster
+  subset_data <- subset(dfs_lists_VB$Balanites_aegyptiaca,
+                        moment == "jour" & season == "J" & Family == family & morphospecies != "formic.3")
+  
+  # Aggregate the data
+  abundance_aggregated <- aggregate(Abun_tree ~ id_tree + site + Locality, data = subset_data, sum)
+  
+  # Ensure the 'Locality' factor is ordered
+  desired_order <- c("Koyli_Alpha", "Widou", "Ranerou") 
+  abundance_aggregated$Locality <- factor(abundance_aggregated$Locality, levels = desired_order)
+  
+  # Fit the negative binomial model
+  glmbn <- glm.nb(Abun_tree ~ Locality, data = abundance_aggregated)
+  
+  # Model summary and ANOVA
+  model_summary <- summary(glmbn)
+  model_anova <- Anova(glmbn, type = 3, method = "chisq")
+  
+  # Plot residuals
+  residuals_plot <- plot(simulateResiduals(glmbn))
+  
+  # Post-hoc tests
+  emtb <- emmeans(glmbn, ~ Locality)
+  pairwise_comparisons <- pairs(emtb)
+  
+  # Return results
+  list(
+    summary = model_summary,
+    anova = model_anova,
+    residuals_plot = residuals_plot,
+    emtb = emtb,
+    pairwise_comparisons = pairwise_comparisons
+  )
+}
+
+# List of families to analyze
+families <- c("Halictidae","Chloropidae","Formicidae", "Braconidae") # Add more superfamilies as needed
+
+
+
+# Analyze each family
+resultsfam <- lapply(families, analyze_family)
+resultsfam
+
+
+
+subset_data_families <- subset(dfs_lists_VB$Balanites_aegyptiaca,
+                               moment == "jour" & 
+                               season == "J" &Family %in% c("Formicidae", "Chloropidae", "Halictidae","Braconidae")&morphospecies!="formic.3")
+ 
+
+
+  # Aggregate the data
+abundance_aggregated_families <- aggregate(Abun_tree ~ Family+id_tree + site + Locality, data = subset_data_families, sum)
+  
+  # Ensure the 'Locality' factor is ordered
+desired_order <- c("Koyli_Alpha", "Widou", "Ranerou") 
+desired_fam<-c("Formicidae","Halictidae","Chloropidae","Braconidae")
+abundance_aggregated_families$Locality <- factor(abundance_aggregated_families$Locality, levels = desired_order)
+
+desired_fam<-c("Formicidae","Halictidae","Chloropidae","Braconidae")
+abundance_aggregated_families$Family <- factor(abundance_aggregated_families$Family, levels = desired_fam)
+
+
+famlies_boxplot<- ggplot(abundance_aggregated_families) +
+  aes(x = Abun_tree, y = Locality, fill = Locality) +
+  geom_boxplot() +
+  labs(x = "log10(Abundance)")+
+  scale_fill_hue(direction = 1) +
+  scale_x_continuous(trans = "log10") +
+  coord_flip() +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_text(size = 13L),
+    axis.title.x = element_text(size = 13L),
+    axis.text.y = element_text(size = 13L),
+    axis.text.x = element_text(size = 13L),
+    legend.text = element_text(size = 12L),
+    legend.title = element_text(size = 13L),
+    strip.text = element_text(size = 14L)  # Adjust the size as needed
+  ) +
+  facet_wrap(vars(Family))
+famlies_boxplot
+
+
+
+
+library(gridExtra)
+
+# Arrange the plots
+grid.arrange(abundance_aggregated_g0_plot,
+  abundance_aggregated_gnetplot,
+  abundance_aggregated_g0p_plot,
+  abundance_aggregated_gp_plot,
+  ncol = 2, # Number of columns in the layout
+  nrow = 2  # Number of rows in the layout
+)
+
+```
