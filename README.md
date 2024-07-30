@@ -5,8 +5,9 @@ Pour le chapitre 1 de Synthèse veuillez à trouver les Supporting Table I et Su
 ## Chapitre 2 Saisonnalité de *B. aegyptiaca* 
 Pour le script utilisé pour les analyses et graphiques réalisés sur r.studio du chapitre 2, voir Seasonality_Balanites.rmd 
 ## Chapitre 3 Localités de *B. aegyptiaca* 
-Pour le script  utilisé pour les analyses et graphiques réalisés sur r.studio du chapitre 3, voir Locality_Balanite_2.rmd 
-Pour les fichier suivants, il est nécessaire de les télécharger afin de pouvoir les visualiser:
+Pour le script  utilisé pour les analyses et graphiques réalisés sur r.studio du chapitre 3, voir Locality_Balanite_2.rmd.
+
+  Pour les fichier suivants, il est nécessaire de les télécharger afin de pouvoir les visualiser:
   - Sn_Koylibees.html
   - Sn_Rbees.html
   - Sn_Wbees.html
