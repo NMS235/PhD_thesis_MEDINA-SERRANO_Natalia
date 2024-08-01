@@ -64,7 +64,7 @@ chryso.17;Chrysomelidae;Coleoptera;Chrysomeloidea;Polyphaga;beetle;phytophagous;
 chryso.16;Chrysomelidae;Coleoptera;Chrysomeloidea;Polyphaga;beetle;phytophagous;phytophagous_coleoptera;0;;;;;;;;;
 chryso.18;Chrysomelidae;Coleoptera;Chrysomeloidea;Polyphaga;beetle;phytophagous;phytophagous_coleoptera;0;;;;;;;;;
 chryso.6;Chrysomelidae;Coleoptera;Chrysomeloidea;Polyphaga;beetle;phytophagous;phytophagous_coleoptera;0;;;;;;;;;
-chryso.9;Chrysomelidae;Coleoptera;Chrysomeloidea;Polyphaga;beetle;phytophagous;phytophagous_coleoptera;0;;;;;;;le même que chryso 8 a priori;;
+chryso.9;Chrysomelidae;Coleoptera;Chrysomeloidea;Polyphaga;beetle;phytophagous;phytophagous_coleoptera;0;;;;;;;le mÃªme que chryso 8 a priori;;
 cerylo.1;Cerylonidae;Coleoptera;Coccinelloidea;Polyphaga;beetle;predator;predatory_coleoptera;0;;;;;;;;;
 coccin.1;Coccinellidae;Coleoptera;Coccinelloidea;Polyphaga;beetle;predator;predatory_coleoptera;0;;;;;;;;;
 coccin.2;Coccinellidae;Coleoptera;Coccinelloidea;Polyphaga;beetle;predator;predatory_coleoptera;0;;;;;;;;;
@@ -243,7 +243,7 @@ tephri.5;Tephritidae;Diptera;Tephritoidea;Brachycera;fly;phytophagous;phytophago
 tephri.5;Tephritidae;Diptera;Tephritoidea;Brachycera;fly;phytophagous;phytophagous_diptera;1;;;;;;;;;
 Ulidii.1;Ulidiidae;Diptera;Tephritoidea;Brachycera;fly;generalist;generalist_diptera;0;;;;;;;;;
 Dipter.14;;Diptera;;;fly;generalist;generalist_diptera;0;;;;;;;;;
-dipter.15(à changer);;Diptera;;;fly;generalist;generalist_diptera;0;;;;;;;;;
+dipter.15(Ã  changer);;Diptera;;;fly;generalist;generalist_diptera;0;;;;;;;;;
 dipter.17;;Diptera;;;fly;generalist;generalist_diptera;0;;;;;;;;;
 dipter.18;;Diptera;;;fly;generalist;generalist_diptera;0;;;;;;;;;
 diptera;;Diptera;;;fly;generalist;generalist_diptera;0;;;;;;;;;
