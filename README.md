@@ -1,5 +1,7 @@
 # PhD_thesis_MEDINA-SERRANO_Natalia
-In this repository you will find the supporting information being too long to be added to the main document
+In this repository you will find the supporting information being too long to be added to the main document. 
+Dans les documents .csv vous trouverez les base de données associées aux échantillonnages réalisés pendant les travaux de la thèse ainsi que les classifications taxonomiques et fonctionnelles correspondantes aux morphospèces. 
+
 ## Chapitre 1 synthèse 
 Pour le chapitre 1 de Synthèse veuillez à trouver les Supporting Table I et Supporting Table II ainsi que les informations concernant ces tableaux dans Legends and references supporting information. 
 ## Chapitre 2 Saisonnalité de *B. aegyptiaca* 
