@@ -11,3 +11,5 @@ Pour le script  utilisé pour les analyses et graphiques réalisés sur r.studio
   - Sn_Koylibees.html
   - Sn_Rbees.html
   - Sn_Wbees.html
+## Annexe 4 - Reseau entre *Balanites aegyptiaca* et *Vachellia tortilis*
+- Vous pouvez télécharger VB_piège.html et VB_filet.html pour visualiser les réseaux entre ces deux espèces dans la localité de Koyli Alpha.
